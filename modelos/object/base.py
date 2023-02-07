@@ -15,7 +15,6 @@ import time
 import logging
 from textwrap import indent
 import os
-import yaml
 from pathlib import Path
 import uuid
 from functools import wraps, partialmethod
@@ -24,11 +23,9 @@ from inspect import Parameter, signature
 import importlib
 import importlib.util
 
-from starlette.applications import Starlette
 from starlette.schemas import SchemaGenerator
-import uvicorn
 import cloudpickle as pickle
-from dataclasses_jsonschema import JsonSchemaMixin, T
+from dataclasses_jsonschema import JsonSchemaMixin
 from kubernetes import config
 from kubernetes.stream import portforward
 from kubernetes.client.models import (
@@ -64,10 +61,10 @@ from removestar import removestar
 import isort
 from unimport.main import Main as unimport_main
 
-from arc.kube.sync import copy_file_to_pod
-from arc.image.client import default_socket
-from arc.image.build import REPO_ROOT, find_or_build_img, img_command, build_containerfile
-from arc.kube.pod_util import (
+from modelos.run.kube.sync import copy_file_to_pod
+from modelos.env.image.client import default_socket
+from modelos.env.image.build import REPO_ROOT, find_or_build_img, img_command, build_dockerfile
+from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
     SYNC_SHA_LABEL,
     REPO_NAME_LABEL,
@@ -75,18 +72,18 @@ from arc.kube.pod_util import (
     SYNC_STRATEGY_LABEL,
     wait_for_pod_ready,
 )
-from arc.image.file import write_containerfile
-from arc.config import Config, RemoteSyncStrategy
-from arc.scm import SCM
-from arc.image.registry import get_img_labels, get_repo_tags
-from arc.kube.env import is_k8s_proc
-from arc.kube.auth_util import ensure_cluster_auth_resources
-from arc.image.build import img_id, client_hash
-from arc.client import get_client_id
-from arc.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
-from arc.opts import OptsBuilder, Opts
-from arc.kind import Kind, ObjectLocator, OBJECT_URI_ENV
-from arc.core.encoding import (
+from modelos.env.image.file import write_dockerfile
+from modelos.config import Config, RemoteSyncStrategy
+from modelos.scm import SCM
+from modelos.env.image.registry import get_img_labels, get_repo_tags
+from modelos.run.kube.env import is_k8s_proc
+from modelos.run.kube.auth_util import ensure_cluster_auth_resources
+from modelos.env.image.build import img_id, client_hash
+from modelos.run.client import get_client_id
+from modelos.run.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
+from modelos.object.opts import OptsBuilder, Opts
+from modelos.object.kind import Kind, ObjectLocator, OBJECT_URI_ENV
+from modelos.object.encoding import (
     is_type,
     is_list,
     is_dict,
@@ -114,15 +111,7 @@ ARTIFACT_TYPE_LABEL = "artifact-type"
 CONFIG_DIR = "/config"
 
 
-class APIUtil(JsonSchemaMixin):
-    @classmethod
-    def from_yaml(cls: Type[T], data: Union[str, bytes], validate: bool = True, **yaml_kwargs) -> T:
-        return cls.from_dict(yaml.load(data, **yaml_kwargs), validate)
-
-    def to_yaml(self, omit_none: bool = True, validate: bool = False, **yaml_kwargs) -> str:
-        return yaml.dump(self.to_dict(omit_none, validate), **yaml_kwargs)
-
-
+K = TypeVar("K", bound="Kind")
 C = TypeVar("C", bound="Client")
 
 
@@ -147,7 +136,7 @@ class Client(Kind):
         self,
         uri: Optional[str] = None,
         opts: Optional[Opts] = None,
-        server: Optional[Union[Type["Resource"], "Resource"]] = None,
+        server: Optional[Union[Type[Object], Object]] = None,
         reuse: bool = False,
         hot: Optional[bool] = None,
         dev_dependencies: bool = False,
@@ -230,7 +219,7 @@ class Client(Kind):
         if server is not None:
             print("server not none storing cls")
             self.uri = server.store_cls(dev_dependencies=dev_dependencies, clean=clean, sync_strategy=sync_strategy)
-            if isinstance(server, Resource):
+            if isinstance(server, Object):
                 opts = server.opts()
         elif uri is not None:
             self.uri = uri
@@ -244,7 +233,9 @@ class Client(Kind):
         self.artifact_labels = get_img_labels(self.uri)
 
         if self.artifact_labels is None:
-            raise ValueError(f"image uri '{self.uri}' does not contain any labels, are you sure it was build by arc?")
+            raise ValueError(
+                f"image uri '{self.uri}' does not contain any labels, are you sure it was build by modelos?"
+            )
 
         if reuse:
             # check if container exists
@@ -374,14 +365,14 @@ class Client(Kind):
 
     def _sync_to_pod(
         self,
-        server: Optional[Union[Type[Resource], Resource]],
+        server: Optional[Union[Type[Object], Object]],
         pod: V1Pod,
         namespace: str,
     ) -> None:
         """Sync local code to pod
 
         Args:
-            server (Optional[Type[Server]]): Server type to use
+            server (Optional[Type[Object]]): Object type to use
             pod (V1Pod): Pod to sync to
             namespace (str): Namespace to use
         """
@@ -439,6 +430,9 @@ class Client(Kind):
         repository, tag = parse_repository_tag(self.uri)
         registry, repo_name = resolve_repository_name(repository)
         project_name = repo_name.split("/")[1]
+
+        if namespace is None:
+            namespace = Config().kube_namespace
 
         pod_name = f"{str(project_name).replace('/', '-')}-{tag}"
 
@@ -545,13 +539,13 @@ class Client(Kind):
         return po
 
     @classmethod
-    def opts(cls) -> Optional[Type[Serializable]]:
+    def opts(cls) -> Optional[Type[Opts]]:
         """Options for the server
 
         Returns:
             Optional[Type[Serializable]]: Options for the server
         """
-        return OptsBuilder[Serializable].build(cls)
+        return OptsBuilder[Opts].build(cls)
 
     @classmethod
     def find(cls, locator: ObjectLocator) -> List[str]:
@@ -621,6 +615,7 @@ class Client(Kind):
 
         return make_k8s_uri(self.pod_name, self.pod_namespace)
 
+    @property
     def object_uri(self) -> str:
         """URI for the object
 
@@ -635,9 +630,9 @@ class Client(Kind):
         Returns:
             Iterable[str]: A stream of logs
         """
-        pass
+        raise NotImplementedError()
 
-    def copy(self) -> R:
+    def copy(self: C) -> C:
         """Copy the process
 
         Returns:
@@ -670,25 +665,25 @@ class Client(Kind):
 
     def sync(self) -> None:
         """Sync changes to a remote process"""
-        pass
+        raise NotImplementedError()
 
     def source(self) -> str:
         """Source code for the object"""
-        pass
+        raise NotImplementedError()
 
     @classmethod
     def store_cls(
         cls,
         clean: bool = True,
         dev_dependencies: bool = False,
-        sync_strategy: RemoteSyncStrategy = RemoteSyncStrategy.IMAGE,
+        hot: bool = False,
     ) -> str:
         """Create an image from the server class that can be used to create servers from scratch
 
         Args:
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
-            sync_strategy (RemoteSyncStrategy, optional): Sync strategy to use. Defaults to RemoteSyncStrategy.IMAGE.
+            hot (bool, optional): Whether to build an environment image
 
         Returns:
             str: URI for the image
@@ -711,25 +706,25 @@ class Client(Kind):
         self.core_v1_api.delete_namespaced_pod(self.pod_name, self.pod_namespace)
 
     @classmethod
-    def from_uri(cls: Type[R], uri: str) -> R:
+    def from_uri(cls: Type[C], uri: str) -> C:
         """Create an instance of the class from the uri
 
         Args:
             uri (str): URI of the object
 
         Returns:
-            R: A Resource
+            Client: A Client
         """
         return cls(uri=uri)
 
     @classmethod
     def client(
-        cls: Type[R],
+        cls: Type[C],
         clean: bool = True,
         dev_dependencies: bool = False,
         reuse: bool = True,
         hot: bool = False,
-    ) -> Type[R]:
+    ) -> Type[C]:
         """Create a client of the class, which will allow for the generation of instances remotely
 
         Args:
@@ -807,7 +802,7 @@ class Client(Kind):
         args = [
             f"--context={BUILD_MNT_DIR}",
             f"--destination={uri}",
-            "--dockerfile=Dockerfile.arc",
+            "--dockerfile=Dockerfile.mdl",
             "--ignore-path=/product_uuid",  # https://github.com/GoogleContainerTools/kaniko/issues/2164
         ]
         args.extend(label_args)
@@ -1024,14 +1019,13 @@ class Lock:
         if self.key == key:
             return None
 
-        raise SystemError("Resource is locked and key provided is denied")
+        raise SystemError("Object is locked and key provided is denied")
 
 
-R = TypeVar("R", bound="Resource")
+O = TypeVar("O", bound="Object")
 
 
-# TODO: can we get rid or APIUtil?
-class Resource(Kind, APIUtil):
+class Object(Kind):
     """A resource that can be built and ran remotely over HTTP"""
 
     last_used_ts: float
@@ -1042,7 +1036,7 @@ class Resource(Kind, APIUtil):
 
     @classmethod
     @local
-    def from_env(cls: Type[R]) -> R:
+    def from_env(cls: Type[O]) -> O:
         """Create the server from the environment, it will look for a saved artifact,
         a config.json, or command line arguments
 
@@ -1062,7 +1056,7 @@ class Resource(Kind, APIUtil):
 
         if artifact_file.is_file():
             logging.info("loading srv artifact found locally")
-            srv: R = cls.load()
+            srv = cls.load()
         elif cfg_file.is_file():
             logging.info("loading srv from config file")
             with open(cfg_file) as f:
@@ -1120,7 +1114,7 @@ class Resource(Kind, APIUtil):
         bases = inspect.getmro(cls)
         base_names: List[str] = []
         for base in bases:
-            if isinstance(base, Resource):
+            if isinstance(base, Object):
                 base_names.append(base.__name__)
         return base_names
 
@@ -1279,7 +1273,7 @@ class Resource(Kind, APIUtil):
         """
         raise NotImplementedError()
 
-    def merge(self, uri: str) -> R:
+    def merge(self: O, uri: str) -> O:
         """Merge with the given resource
 
         Args:
@@ -1304,7 +1298,7 @@ class Resource(Kind, APIUtil):
         raise NotImplementedError("this method only works on client objects")
 
     @local
-    def copy(self) -> R:
+    def copy(self: O) -> O:
         """Copy the process
 
         Returns:
@@ -1314,8 +1308,12 @@ class Resource(Kind, APIUtil):
         return copy.deepcopy(self)
 
     def source(self) -> str:
-        """Source code for the object"""
-        raise NotImplementedError("Not yet implemented")
+        """Source code for the object
+
+        Returns:
+            str: Source for the object
+        """
+        raise NotImplementedError()
 
     @classmethod
     def schema(cls) -> str:
@@ -1324,7 +1322,7 @@ class Resource(Kind, APIUtil):
         Returns:
             str: Object schema
         """
-        raise NotImplementedError("Not yet implemented")
+        raise NotImplementedError()
 
     @classmethod
     def _cls_package(cls) -> str:
@@ -1333,7 +1331,7 @@ class Resource(Kind, APIUtil):
         Returns:
             str: the package
         """
-        pass
+        raise NotImplementedError()
 
     @classmethod
     def _client_cls(cls) -> Type[Client]:
@@ -1376,69 +1374,6 @@ class Resource(Kind, APIUtil):
         client_cls: Type[Client] = eval(f"mod.{cls.__name__}Client", loc_copy)
         return client_cls
 
-    @classmethod
-    def _server_entrypoint(cls, scm: Optional[SCM] = None, num_workers: int = 1) -> str:
-        """Generate entrypoint for the server
-
-        Args:
-            scm (Optional[SCM], optional): SCM to use. Defaults to None.
-
-        Returns:
-            str: Path to the entrypoint file
-        """
-        obj_module = inspect.getmodule(cls)
-        if obj_module is None:
-            raise SystemError(f"could not find module for func {obj_module}")
-
-        if scm is None:
-            scm = SCM()
-
-        cls_file_path = Path(inspect.getfile(cls))
-        cls_file = cls_file_path.stem
-        server_file_name = f"{cls.short_name().lower()}_server.py"
-
-        server_file = f"""
-import logging
-import os
-
-import uvicorn
-
-from {cls_file} import {cls.__name__}
-from {cls_file} import *  # noqa: F403, F401
-
-log_level = os.getenv("LOG_LEVEL")
-if log_level is None:
-    logging.basicConfig(level=logging.INFO)
-else:
-    logging.basicConfig(level=log_level)
-
-logging.info("creating object")
-srv = {cls.__name__}.from_env()
-
-logging.info("creating app")
-app = srv._server_app()
-
-if __name__ == "__main__":
-    pkgs = srv._reload_dirs()
-    logging.info(f"starting server version '{{srv.scm.sha()}}' on port: {SERVER_PORT}")
-    uvicorn.run(
-        "__main__:app",
-        host="0.0.0.0",
-        port={SERVER_PORT},
-        log_level="info",
-        workers={num_workers},
-        reload=True,
-        reload_dirs=pkgs.keys(),
-    )
-"""
-
-        class_file = inspect.getfile(cls)
-        dir_path = os.path.dirname(os.path.realpath(class_file))
-        server_filepath = os.path.join(dir_path, server_file_name)
-        with open(server_filepath, "w") as f:
-            f.write(server_file)
-        return server_filepath
-
     def save(self, out_dir: str = "./artifacts") -> None:
         """Save the object
 
@@ -1452,15 +1387,15 @@ if __name__ == "__main__":
 
         if is_k8s_proc():
             logging.info("building containerfile")
-            c = build_containerfile(sync_strategy=RemoteSyncStrategy.IMAGE)
+            c = build_dockerfile(sync_strategy=RemoteSyncStrategy.IMAGE)
             logging.info("writing containerfile")
-            write_containerfile(c)
+            write_dockerfile(c)
             logging.info("copying directory to build dir...")
             shutil.copytree(REPO_ROOT, BUILD_MNT_DIR, dirs_exist_ok=True)
         return
 
     @classmethod
-    def load(cls: Type[R], dir: str = "./artifacts") -> R:
+    def load(cls: Type[O], dir: str = "./artifacts") -> O:
         """Load the object
 
         Args:
@@ -1499,7 +1434,10 @@ if __name__ == "__main__":
         Returns:
             Type[Opts]: Options for the server
         """
-        return OptsBuilder[Opts].build(cls)
+        opts = OptsBuilder[Opts].build(cls)
+        if opts is None:
+            raise ValueError("Can't build opts from this object")
+        return opts
 
     @property
     def uri(self) -> str:
@@ -1528,7 +1466,7 @@ if __name__ == "__main__":
 
     @classmethod
     @local
-    def from_uri(cls: Type[R], uri: str) -> R:
+    def from_uri(cls: Type[O], uri: str) -> O:
         """Create an instance of the class from the uri
 
         Args:
@@ -1537,17 +1475,17 @@ if __name__ == "__main__":
         Returns:
             R: A Resource
         """
-        return cls._client_cls().from_uri(uri)
+        return cls._client_cls().from_uri(uri)  # type: ignore
 
     @classmethod
     def client(
-        cls: Type[R],
+        cls: Type[O],
         clean: bool = True,
         dev_dependencies: bool = False,
         reuse: bool = True,
         hot: bool = False,
         uri: Optional[str] = None,
-    ) -> Type[R]:
+    ) -> Type[O]:
         """Create a client of the class, which will allow for the generation of instances remotely
 
         Args:
@@ -1699,32 +1637,16 @@ if __name__ == "__main__":
         return str(imgid)
 
     @classmethod
-    def from_opts(cls: Type[R], opts: Type[Opts]) -> R:
+    def from_opts(cls: Type[O], opts: Type[Opts]) -> O:
         """Load server from Opts
 
         Args:
-            cls (Type[&quot;Server&quot;]): Server
             opts (Opts): Opts to load from
 
         Returns:
-            Server: A server
+            Object: An object
         """
         return cls(**opts.__dict__)
-
-    @local
-    def _server_app(self) -> Starlette:
-        """Starlette server app
-
-        Returns:
-            Starlette: A server app
-        """
-        routes = self._routes()
-
-        app = Starlette(routes=routes)
-        self.schemas = SchemaGenerator(
-            {"openapi": "3.0.0", "info": {"title": self.__class__.__name__, "version": self.scm.sha()}}
-        )
-        return app
 
     def _reload_dirs(self) -> Dict[str, str]:
         pkgs: Dict[str, str] = {}
@@ -1764,37 +1686,13 @@ if __name__ == "__main__":
         self._lock.try_unlock(client_uuid)
         return client_uuid
 
-    @local
-    def serve(self, port: int = 8080, log_level: str = "info", reload: bool = True) -> None:
-        """Serve the class
-
-        Args:
-            port (int, optional): Port to serve one. Defaults to 8080.
-            log_level (str, optional): Log level. Defaults to "info".
-            reload (bool, optional): Whether to hot reload. Defaults to True.
-        """
-        app = self._server_app()
-
-        pkgs = self._reload_dirs()
-
-        logging.info(f"starting server version '{self.scm.sha()}' on port: {SERVER_PORT}")
-        uvicorn.run(
-            app,
-            host="0.0.0.0",
-            port=port,
-            log_level=log_level,
-            workers=1,
-            reload=reload,
-            reload_dirs=pkgs.keys(),
-        )
-
     def _schema_req(self, request):
         return self.schemas.OpenAPIResponse(request=request)
 
     @classmethod
     @local
     def versions(
-        cls: Type[R], repositories: Optional[List[str]] = None, cfg: Optional[Config] = None, compatible: bool = True
+        cls: Type[O], repositories: Optional[List[str]] = None, cfg: Optional[Config] = None, compatible: bool = True
     ) -> List[str]:
         """Find all versions of this type
 
@@ -1936,7 +1834,7 @@ if __name__ == "__main__":
                 if is_first_order(args[1]):
                     return
 
-                import_statements["from arc.core.encoding import json_is_type_match"] = None
+                import_statements["from modelos.object.encoding import json_is_type_match"] = None
                 load_lines.append(indent(f"if not json_is_type_match({t_hint}, _{key}):", idt))
                 load_lines.append(
                     indent(f"    raise ValueError(\"JSON from '{key}' returned does not match type: {t}\")", idt)
@@ -1964,7 +1862,7 @@ if __name__ == "__main__":
                 if is_first_order(args[0]):
                     return
 
-                import_statements["from arc.core.encoding import json_is_type_match"] = None
+                import_statements["from modelos.object.encoding import json_is_type_match"] = None
                 load_lines.append(indent(f"if not json_is_type_match({t_hint}, _{key}):", idt))
                 load_lines.append(
                     indent(f"    raise ValueError(\"JSON from '{key}' returned does not match type: {t}\")", idt)
@@ -2025,7 +1923,7 @@ if __name__ == "__main__":
                         continue
 
                     else:
-                        import_statements["from arc.core.encoding import json_is_type_match"] = None
+                        import_statements["from modelos.object.encoding import json_is_type_match"] = None
                         load_lines.append(indent(f"{if_line} json_is_type_match({arg_hint}, _{key}):", idt))
                         load_lines.append(indent(f"    print('checking type match match for {h}')", idt))
                         proc_load(arg, key, load_lines, idt + "    ")
@@ -2152,7 +2050,7 @@ if __name__ == "__main__":
                     # Handle optionals
                     args = (args[1], args[0])
 
-                import_statements["from arc.core.encoding import deep_isinstance"] = None
+                import_statements["from modelos.object.encoding import deep_isinstance"] = None
                 for i, arg in enumerate(args):
                     # print("arg: ", arg)
                     # print("arg module: ", arg.__module__)
@@ -2219,7 +2117,7 @@ if __name__ == "__main__":
             # print("\n====\n server fn: ", name)
             used_vars = {}
             root_cls = cls._get_class_that_defined_method(fn)
-            if not issubclass(root_cls, Resource):
+            if not issubclass(root_cls, Object):
                 # logging.info(f"skipping fn '{name}' as it is not of subclass resource")
                 continue
 
@@ -2280,7 +2178,7 @@ if __name__ == "__main__":
                 if ret == NoneType:
                     ser_lines.append("_ret = {'value': None}")
                 if is_union(ret):
-                    import_statements["from arc.core.resource import is_first_order"] = None
+                    import_statements["from modelos.object.encoding import is_first_order"] = None
                     ser_lines.append("if is_first_order(type(_ret)) or _ret is None:")
                     ser_lines.append("    _ret = {'value': _ret}")
             except TypeNotSupportedError:
@@ -2710,7 +2608,7 @@ if __name__ == "__main__":
                     # Handle optionals
                     args = (args[1], args[0])
 
-                import_statements["from arc.core.encoding import deep_isinstance"] = None
+                import_statements["from modelos.object.encoding import deep_isinstance"] = None
                 for i, arg in enumerate(args):
                     # print("arg: ", arg)
                     # print("arg module: ", arg.__module__)
@@ -2837,7 +2735,7 @@ if __name__ == "__main__":
 
                 ser_lines.append(indent(f"# code for arg: {ret}", idt))
                 if not ret_union:
-                    import_statements["from arc.core.encoding import json_is_type_match"] = None
+                    import_statements["from modelos.object.encoding import json_is_type_match"] = None
                     ser_lines.append(indent(f"if not json_is_type_match({ret_hint}, {jdict_name}):", idt))
                     ser_lines.append(
                         indent(f"    raise ValueError('JSON returned does not match type: {ret_hint}')", idt)
@@ -2890,7 +2788,7 @@ if __name__ == "__main__":
                 if len(args) == 0:
                     raise SystemError("args for iterable are None")
                 ser_lines.append(indent(f"# code for union: {ret}", idt))
-                import_statements["from arc.core.encoding import json_is_type_match"] = None
+                import_statements["from modelos.object.encoding import json_is_type_match"] = None
                 for i, arg in enumerate(args):
                     if_line = "if"
                     if i > 0:
@@ -2919,7 +2817,7 @@ if __name__ == "__main__":
                 annots = ret.__annotations__
                 # print("creating return object for type: ", ret_type)
                 ser_lines.append(indent(f"# code for object: {ret}", idt))
-                import_statements["from arc.core.encoding import json_is_type_match"] = None
+                import_statements["from modelos.object.encoding import json_is_type_match"] = None
                 ser_lines.append(indent(f"if not json_is_type_match({ret_type}, {jdict_name}):", idt))
                 ser_lines.append(indent(f"    raise ValueError('JSON returned does not match type: {ret_hint}')", idt))
                 ser_lines.append(indent(f"{ret_name}_obj = object.__new__({ret_type})  # type: ignore", idt))
@@ -2948,7 +2846,7 @@ if __name__ == "__main__":
             used_vars = {}
 
             root_cls = cls._get_class_that_defined_method(fn)
-            if not issubclass(root_cls, Resource):
+            if not issubclass(root_cls, Object):
                 # logging.info(f"skipping fn '{name}' as it is not of subclass resource")
                 continue
 
@@ -3184,8 +3082,8 @@ from pathlib import Path
 
 from lib_programname import get_path_executed_script
 
-from arc.core.resource import Client
-from arc.opts import OptsBuilder, Opts
+from modelos import Client
+from modelos.object.opts import OptsBuilder, Opts
 {imports_joined}
 
 if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(Path('{filename}')):

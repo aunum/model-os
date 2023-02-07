@@ -139,7 +139,7 @@ def has_arc_yaml(current_path: Optional[str] = None, pattern: Optional[str] = No
     if path is None:
         return False
 
-    config_path = os.path.join(path, "arc.yaml")
+    config_path = os.path.join(path, "mdl.yaml")
 
     if os.path.exists(config_path):
         return True
@@ -152,7 +152,7 @@ def load_arc_yaml(current_path: Optional[str] = None, pattern: Optional[str] = N
     if path is None:
         raise ValueError("could not find root path")
 
-    config_path = os.path.join(path, "arc.yaml")
+    config_path = os.path.join(path, "mdl.yaml")
 
     with open(config_path, "r") as stream:
         return yaml.safe_load(stream)

@@ -55,7 +55,7 @@ class Config:
         if self.image_repo == "":
             raise ValueError(
                 "could not find a configured registry url, please set either $ARC_IMAGE_REPO,"
-                + " add `tool.arc.image_repo` to pyproject.toml, or add `image_repo` to arc.yaml"
+                + " add `tool.modelos.image_repo` to pyproject.toml, or add `image_repo` to mdl.yaml"
             )
 
         if docker_socket is None:
@@ -73,7 +73,7 @@ class Config:
         else:
             self.kube_namespace = kube_namespace
         if self.kube_namespace == "":
-            self.kube_namespace = "arc"
+            self.kube_namespace = "mdl"
 
         if remote_sync_strategy is None:
             self.remote_sync_strategy = self.get_remote_sync_strategy()
@@ -87,7 +87,7 @@ class Config:
 
         if self._pyproject_dict is not None:
             try:
-                return self._pyproject_dict["tool"]["arc"]["image_repo"]
+                return self._pyproject_dict["tool"]["modelos"]["image_repo"]
             except KeyError:
                 pass
 
@@ -104,7 +104,7 @@ class Config:
 
         if self._pyproject_dict is not None:
             try:
-                return self._pyproject_dict["tool"]["arc"]["docker_socket"]
+                return self._pyproject_dict["tool"]["modelos"]["docker_socket"]
             except KeyError:
                 pass
 
@@ -121,7 +121,7 @@ class Config:
 
         if self._pyproject_dict is not None:
             try:
-                return self._pyproject_dict["tool"]["arc"]["kube_namespace"]
+                return self._pyproject_dict["tool"]["modelos"]["kube_namespace"]
             except KeyError:
                 pass
 
@@ -138,7 +138,7 @@ class Config:
 
         if self._pyproject_dict is not None:
             try:
-                sync = self._pyproject_dict["tool"]["arc"]["remote_sync_strategy"]
+                sync = self._pyproject_dict["tool"]["modelos"]["remote_sync_strategy"]
                 return RemoteSyncStrategy(sync)
             except KeyError:
                 pass

@@ -18,8 +18,8 @@ from kubernetes.stream import stream
 from modelos.config import RemoteSyncStrategy
 from modelos.env.image.id import ImageID
 from modelos.scm import SCM
-from arc.image.build import find_or_build_img, REPO_ROOT
-from arc.kube.pod_util import (
+from modelos.env.image.build import find_or_build_img, REPO_ROOT
+from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
     SYNC_SHA_LABEL,
     ENV_SHA_LABEL,
@@ -138,17 +138,6 @@ def copy_file_to_pod(
             tty=False,
         )
 
-    return
-
-
-def sync_repo_to_volume(
-    volume_name: str, create: bool = True, scm: Optional[SCM] = None, core_v1_api: Optional[CoreV1Api] = None
-):
-    if core_v1_api is None:
-        config.load_kube_config()
-        core_v1_api = CoreV1Api()
-
-    raise NotImplementedError("not yet implemented")
     return
 
 

@@ -10,7 +10,7 @@ import git
 import tomli
 import modelos.util.rootpath as rootpath
 
-DEFAULT_ARCHIVE_BASE_DIR = "./.arc/archive"
+DEFAULT_ARCHIVE_BASE_DIR = "./.mdl/archive"
 SHORT_HASH_LENGTH = 7
 
 
@@ -106,7 +106,7 @@ class SCM:
         if rp is None:
             raise ValueError(
                 "could not detect rootpath, "
-                + "looking for .git | requirements.txt | environment.yml | pyproject.toml | arc.yaml"
+                + "looking for .git | requirements.txt | environment.yml | pyproject.toml | mdl.yaml"
             )
 
         return str(os.path.relpath(rp, str(self.git_repo.working_dir)))
@@ -118,7 +118,7 @@ class SCM:
             str: a hash if there are any uncommitted or untracked changes, else empty string
         """
 
-        exclusion_list = [".arc", "_client.py", "_server.py"]
+        exclusion_list = [".mdl", "_client.py", "_server.py"]
 
         def is_excluded(filename: str) -> bool:
             for ex in exclusion_list:
