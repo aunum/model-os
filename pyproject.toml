@@ -17,16 +17,20 @@ starlette = "^0.24.0"
 uvicorn = "^0.20.0"
 cloudpickle = "^2.2.1"
 dataclasses-jsonschema = "^2.16.0"
-types-PyYAML = "^6.0.12"
-types-six = "^1.16.21"
 docker-image-py = "^0.1.12"
 GitPython = "^3.1.30"
 opencontainers = "^0.0.14"
 deepdiff = "^6.2.3"
+semver = "^2.13.0"
+ocifacts = "^0.0.7"
+xdg = "^5.1.1"
 
 [tool.poetry.dev-dependencies]
 mypy = "^1.0.0"
 pylint = "^2.16.1"
+types-PyYAML = "^6.0.12"
+types-six = "^1.16.21"
+ipykernel = "^6.21.1"
 
 [build-system]
 requires = ["poetry-core>=1.0.0"]

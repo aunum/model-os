@@ -3,7 +3,7 @@ from abc import ABC, abstractmethod, abstractproperty
 from typing import Dict, Iterable, List, Any, Optional, Type, TypeVar
 
 from modelos.config import Config
-from modelos.opts import Opts
+from modelos.object.opts import Opts
 
 OBJECT_URI_ENV = "OBJECT_URI"
 

@@ -67,7 +67,7 @@ with HamClient(weight=12, brand="black forest") as ham:
     # Store the object
     uri = ham.store()
 ```
-Example develop URI: `acme.org/ml-project:obj-ham-f2oij-2oijr-f8g2n`
+Example develop URI: `acme.org/ml-project:obj.ham.f2oij-2oijr-f8g2n`
 
 
 ### Releasing Objects
@@ -81,7 +81,7 @@ with HamClient(weight=14, brand="honey baked") as ham:
 
     uri = ham.release()
 ```
-Example release URI: `acme.org/ml-project:obj-ham-v1.2.3`   
+Example release URI: `acme.org/ml-project:obj.ham.v1.2.3`   
 
 #### Versioning scheme
 
@@ -96,7 +96,7 @@ Install a client from a release and use it to generate a remote instance
 ```python
 from modelos import install
 
-install("acme.org/ml-project:obj-ham-v1")
+install("acme.org/ml-project:obj.ham.v1")
 
 from ml_project.ham.v1 import HamClient
 
@@ -119,7 +119,7 @@ Install a class and use locally or remotely
 ```python
 from modelos import install
 
-install("acme.org/ml-project:obj-ham-v1.2")
+install("acme.org/ml-project:obj.ham.v1.2")
 
 from ml_project.ham.v1_2 import Ham
 
@@ -136,7 +136,7 @@ Install an object and use it locally
 ```python
 from modelos import install
 
-install("acme.org/ml-project:obj-ham-v1.2.3")
+install("acme.org/ml-project:obj.ham.v1.2.3")
 
 from ml_project.ham.v1_2_3 import Ham
 
@@ -164,13 +164,13 @@ ham            k8s://ham-v1-2-3-e0skr.default         acme.org/ml-project:obj-ha
 ```
 
 ## Packages
-Packages are versioned filesystems
+Packages are immutable versioned filesystems
 
 ```sh
 $ mdl push ./mnist/ mnist --version v1.2.3
 ```
 
-This will result in an artifact like `acme.org/ml-project:pkg-mnist-v1.2.3`
+This will result in an artifact like `acme.org/ml-project:pkg.mnist.v1.2.3`
 
 
 List all packages
@@ -198,7 +198,7 @@ from modelos import Pkg
 uri = Pkg.push("./mnist/", "mnist", "v1.2.3")
 
 # Get the package
-pkg = Pkg.pull("acme.org/ml-project:pkg-mnist-v1.2.3")
+pkg = Pkg.pull("acme.org/ml-project:pkg.mnist.v1.2.3")
 
 # List contents of the package
 pkg.ls()
@@ -211,7 +211,7 @@ with pkg.open("/data/train.csv") as f:
 ## Environments
 Environments are Python environments that can be used to execute code remotely
 
-URI Example: `acme.org/ml-project:env-ml-project-f93jf-owjr4-82kvi`
+URI Example: `acme.org/ml-project:env.ml-project.f93jf-owjr4-82kvi`
 
 ```sh
 $ mdl build --push
@@ -229,7 +229,7 @@ _In progress_
 
 Functions are stateless Python functions
 
-URI Example: `acme.org/ml-project:fn-echo-v1.3.2`
+URI Example: `acme.org/ml-project:fn.echo.v1.3.2`
 
 ```python
 from modelos import fn

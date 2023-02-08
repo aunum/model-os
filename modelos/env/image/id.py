@@ -19,7 +19,7 @@ class ImageID:
         host, repo = reference.Reference.split_docker_domain(image_ref)
         ref = reference.Reference.parse(repo)
 
-        return cls(host=host, repository=repo, tag=ref["tag"])
+        return cls(host=host, repository=ref["name"], tag=ref["tag"])
 
     def ref(self) -> str:
         return str(self)

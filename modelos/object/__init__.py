@@ -1,1 +1,1 @@
-from base import Object  # noqa
+from .base import Object  # noqa
