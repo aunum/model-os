@@ -27,7 +27,7 @@ class RemoteSyncStrategy(str, Enum):
 class Config:
     """General configuration for Arc"""
 
-    image_repo: str
+    image_repo: Optional[str]
     docker_socket: str
     kube_namespace: str
     remote_sync_strategy: RemoteSyncStrategy
@@ -80,8 +80,8 @@ class Config:
         else:
             self.remote_sync_strategy = remote_sync_strategy
 
-    def get_image_repo(self) -> str:
-        env = os.getenv("ARC_IMAGE_REPO")
+    def get_image_repo(self) -> Optional[str]:
+        env = os.getenv("MDL_IMAGE_REPO")
         if env is not None:
             return env
 
@@ -95,10 +95,10 @@ class Config:
             if "image_repo" in self._arc_yaml:
                 return self._arc_yaml["image_repo"]
 
-        return ""
+        return None
 
     def get_docker_socket(self) -> str:
-        env = os.getenv("ARC_DOCKER_SOCKET")
+        env = os.getenv("MDL_DOCKER_SOCKET")
         if env is not None:
             return env
 
@@ -115,7 +115,7 @@ class Config:
         return ""
 
     def get_kube_namespace(self) -> str:
-        env = os.getenv("ARC_KUBE_NAMESPACE")
+        env = os.getenv("MDL_KUBE_NAMESPACE")
         if env is not None:
             return env
 
@@ -132,7 +132,7 @@ class Config:
         return ""
 
     def get_remote_sync_strategy(self) -> RemoteSyncStrategy:
-        env = os.getenv("ARC_REMOTE_SYNC_STRATEGY")
+        env = os.getenv("MDL_REMOTE_SYNC_STRATEGY")
         if env is not None:
             return RemoteSyncStrategy(env)
 

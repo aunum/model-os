@@ -1,4 +1,4 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import json
 
 import docker
@@ -29,12 +29,11 @@ def clean_repo_name(name: str) -> str:
     return name
 
 
-def get_oci_client(uri: str, cli: docker.APIClient = None) -> NewClient:
+def get_oci_client(uri: str) -> NewClient:
     """Get OCI client for a URI
 
     Args:
         uri (str): URI to find client for
-        cli (docker.APIClient, optional): Docker client. Defaults to None.
 
     Returns:
         NewClient: an OCI client
@@ -80,7 +79,7 @@ def get_oci_client(uri: str, cli: docker.APIClient = None) -> NewClient:
     return client
 
 
-def get_repo_tags(repo: str, cli: docker.APIClient = None) -> List[str]:
+def get_repo_tags(repo: str, client: Optional[NewClient] = None) -> List[str]:
     """Get image tags
 
     Args:
@@ -96,7 +95,8 @@ def get_repo_tags(repo: str, cli: docker.APIClient = None) -> List[str]:
 
     repo_name = clean_repo_name(repo_name)
 
-    client = get_oci_client(repo, cli)
+    if client is None:
+        client = get_oci_client(repo)
 
     req = client.NewRequest("GET", "/v2/<name>/tags/list", WithName(repo_name))
     response = client.Do(req)
@@ -105,12 +105,11 @@ def get_repo_tags(repo: str, cli: docker.APIClient = None) -> List[str]:
     return jdict["tags"]
 
 
-def get_img_labels(uri: str, cli: docker.APIClient = None) -> Dict[str, Any]:
+def get_img_labels(uri: str) -> Dict[str, Any]:
     """Get any labels for an image
 
     Args:
         uri (str): URI to get labels for
-        cli (docker.APIClient, optional): Docker client. Defaults to None.
 
     Returns:
         Dict[str, Any]: Dictionary of labels
@@ -118,7 +117,7 @@ def get_img_labels(uri: str, cli: docker.APIClient = None) -> Dict[str, Any]:
     repository, tag = parse_repository_tag(uri)
     registry, repo_name = resolve_repository_name(repository)
 
-    client = get_oci_client(uri, cli)
+    client = get_oci_client(uri)
 
     repo_name = clean_repo_name(repo_name)
 
@@ -148,20 +147,3 @@ def get_img_labels(uri: str, cli: docker.APIClient = None) -> Dict[str, Any]:
     labels = jdict2["config"]["Labels"]
 
     return labels
-
-
-def get_img_refs(uri: str, cli: docker.APIClient = None) -> Dict[str, Any]:
-    """Get any references of an image
-
-    Args:
-        uri (str): Image URI
-        cli (docker.APIClient, optional): Docker client. Defaults to None.
-
-    Returns:
-        Dict[str, Any]: Image refs if exist or nothing
-    """
-
-    labels = get_img_labels(uri, cli)
-    if "refs" not in labels:
-        return {}
-    return json.loads(labels["refs"])

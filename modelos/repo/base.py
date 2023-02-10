@@ -4,16 +4,16 @@ from docker_image import reference
 
 
 class Repo:
-    """An OCI repository"""
+    """A state repository"""
 
     host: str
-    repo: str
+    name: str
     uri: str
 
     def __init__(self, uri: str) -> None:
-        host, repo = reference.Reference.split_docker_domain(uri)
+        host, name = reference.Reference.split_docker_domain(uri)
         self.host = host
-        self.repo = repo
+        self.name = name
         self.uri = uri
 
     def __str__(self):
@@ -28,3 +28,11 @@ class Repo:
     @classmethod
     def list(cls) -> List[str]:
         raise NotImplementedError()
+
+
+class PkgRepo:
+    pass
+
+
+class ImgRepo:
+    pass
