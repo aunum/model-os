@@ -1,7 +1,5 @@
 from typing import Any, Dict, List, Optional
-import json
 
-import docker
 from docker.utils.utils import parse_repository_tag
 from docker.utils.config import load_general_config
 from docker.auth import resolve_repository_name, load_config
@@ -39,8 +37,8 @@ def get_oci_client(uri: str) -> NewClient:
         NewClient: an OCI client
     """
 
-    repository, tag = parse_repository_tag(uri)
-    registry, repo_name = resolve_repository_name(repository)
+    repository, _ = parse_repository_tag(uri)
+    registry, _ = resolve_repository_name(repository)
 
     general_configs = load_general_config()
 
@@ -83,15 +81,15 @@ def get_repo_tags(repo: str, client: Optional[NewClient] = None) -> List[str]:
     """Get image tags
 
     Args:
-        repo (str): Repo URI
+        repo (str): Repo URI e.g. aunum/ml-project
         cli (docker.APIClient, optional): Docker client. Defaults to None.
 
     Returns:
         List[str]: A list of tags
     """
 
-    repository, tag = parse_repository_tag(repo)
-    registry, repo_name = resolve_repository_name(repository)
+    repository, _ = parse_repository_tag(repo)
+    _, repo_name = resolve_repository_name(repository)
 
     repo_name = clean_repo_name(repo_name)
 
@@ -105,17 +103,44 @@ def get_repo_tags(repo: str, client: Optional[NewClient] = None) -> List[str]:
     return jdict["tags"]
 
 
-def get_img_labels(uri: str) -> Dict[str, Any]:
-    """Get any labels for an image
+def delete_repo_tag(repo: str, tag: str, client: Optional[NewClient] = None) -> List[str]:
+    """Delete repo tag
 
     Args:
-        uri (str): URI to get labels for
+        repo (str): Repo URI e.g. aunum/ml-project
+        tag (str): Tag to delete
+        cli (docker.APIClient, optional): Docker client. Defaults to None.
+
+    Returns:
+        List[str]: A list of tags
+    """
+
+    repository, tag = parse_repository_tag(repo)
+    _, repo_name = resolve_repository_name(repository)
+
+    repo_name = clean_repo_name(repo_name)
+
+    if client is None:
+        client = get_oci_client(repo)
+
+    req = client.NewRequest("DELETE", "/v2/<name>/manifests/<reference>", WithName(repo_name), WithReference(tag))
+    response = client.Do(req)
+    jdict = response.json()
+    print("tags repsonse: ", jdict)
+    return jdict["tags"]
+
+
+def get_repo_labels(uri: str) -> Dict[str, Any]:
+    """Get any labels for a repo
+
+    Args:
+        uri (str): Repo URI to get labels for e.g. aunum/ml-project
 
     Returns:
         Dict[str, Any]: Dictionary of labels
     """
     repository, tag = parse_repository_tag(uri)
-    registry, repo_name = resolve_repository_name(repository)
+    _, repo_name = resolve_repository_name(repository)
 
     client = get_oci_client(uri)
 

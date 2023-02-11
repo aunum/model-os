@@ -2,6 +2,9 @@ from abc import ABC, abstractmethod
 from typing import List, Optional
 
 
+from modelos.pkg.id import PkgID
+
+
 class PkgRepo(ABC):
     """Package repository"""
 
@@ -51,6 +54,14 @@ class PkgRepo(ABC):
         pass
 
     @abstractmethod
+    def ids(self) -> List[str]:
+        """Ids of all packages
+
+        Returns:
+            List[str]: A list of ids
+        """
+
+    @abstractmethod
     def delete(self, name: str, version: str) -> None:
         """Delete a pkg
 
@@ -63,4 +74,17 @@ class PkgRepo(ABC):
     @abstractmethod
     def clean(self) -> None:
         """Delete all non-releases"""
+        pass
+
+    @abstractmethod
+    def build_id(self, name: str, version: str) -> PkgID:
+        """Build a PkgID for the given name / version
+
+        Args:
+            name (str): Name of the package
+            version (str): Version of the package
+
+        Returns:
+            PkgID: A PkgID
+        """
         pass

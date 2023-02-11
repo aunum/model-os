@@ -3,8 +3,8 @@ from typing import Type, Tuple
 import re
 from pathlib import Path
 
-from modelos.env.image.id import ImageID
 from modelos.local import pkg_home
+from modelos.virtual.container.id import ImageID
 
 
 class PkgID:
@@ -76,6 +76,25 @@ class PkgID:
             str: A URI
         """
         uri = f"{self.repo}:pkg.{self.name}.{self.version}"
+        if self.host != "docker.io":
+            uri = f"{self.host}/{uri}"
+        return uri
+
+    def tag(self) -> str:
+        """Tag for this ID
+
+        Returns:
+            str: The tag
+        """
+        return f"pkg.{self.name}.{self.version}"
+
+    def repo_uri(self) -> str:
+        """Get repo URI
+
+        Returns:
+            str: A URI
+        """
+        uri = self.repo
         if self.host != "docker.io":
             uri = f"{self.host}/{uri}"
         return uri

@@ -1,11 +1,13 @@
 from typing import List, Optional
+import logging
 
 from opencontainers.distribution.reggie import NewClient
 from semver import VersionInfo
+from docker.auth import resolve_repository_name
 
 from modelos.pkg.repo.base import PkgRepo
 from modelos.pkg.id import PkgID
-from modelos.env.image.registry import get_oci_client, get_repo_tags
+from modelos.virtual.container.registry import get_oci_client, get_repo_tags, delete_repo_tag
 
 
 class OCIPkgRepo(PkgRepo):
@@ -13,15 +15,19 @@ class OCIPkgRepo(PkgRepo):
 
     client: NewClient
     uri: str
+    registry: str
+    name: str
 
     def __init__(self, uri: str) -> None:
         """Connect to an OCI based pkg repo
 
         Args:
-            uri (str): URI to connect to
+            uri (str): OCI registry URI to connect to e.g. aunum/ml-project or docker.io/aunum/ml-project
         """
         self.client = get_oci_client(uri)
         self.uri = uri
+
+        self.registry, self.name = resolve_repository_name(uri)
 
     def names(self) -> List[str]:
         """Names of the packages in the repo
@@ -105,9 +111,10 @@ class OCIPkgRepo(PkgRepo):
         releases: List[str] = []
         for tag in tags:
             try:
-                _, ver = PkgID.parse_tag(tag)
+                nm, ver = PkgID.parse_tag(tag)
                 VersionInfo.parse(ver[1:])
-                releases.append(tag)
+                if name == nm:
+                    releases.append(tag)
             except Exception:
                 continue
 
@@ -138,8 +145,49 @@ class OCIPkgRepo(PkgRepo):
             name (str): Name of the pkg
             version (Optional[str], optional): Versions to delete, use 'all' for all versions. Defaults to None.
         """
-        pass
+        tags = get_repo_tags(self.uri, self.client)
+
+        for tag in tags:
+            try:
+                nm, ver = PkgID.parse_tag(tag)
+                if name == nm and version == ver:
+                    delete_repo_tag(self.uri, tag)
+                    logging.info(f"deleted repo tag {tag}")
+                    return
+            except Exception:
+                continue
+
+        raise ValueError(f"could not find tag with name '{name}' and version '{version}' to delete")
 
     def clean(self) -> None:
         """Delete all non-releases"""
-        pass
+
+        tags = get_repo_tags(self.uri, self.client)
+
+        for tag in tags:
+            try:
+                _, ver = PkgID.parse_tag(tag)
+                VersionInfo.parse(ver)
+                delete_repo_tag(self.uri, tag)
+                logging.info(f"deleted repo tag {tag}")
+            except Exception:
+                continue
+
+        return None
+
+    def build_id(self, name: str, version: str) -> PkgID:
+        """Build a PkgID for the given name / version
+
+        Args:
+            name (str): Name of the package
+            version (str): Version of the package
+
+        Returns:
+            PkgID: A PkgID
+        """
+        return PkgID(
+            name,
+            version,
+            self.registry,
+            self.name,
+        )

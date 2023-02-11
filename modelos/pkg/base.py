@@ -3,20 +3,24 @@ from typing import List, Type, Dict, Optional, Union
 import os
 from pathlib import Path
 import logging
-import hashlib
 import shutil
 import yaml
+import json
 from io import TextIOWrapper
 
 from semver import VersionInfo
 import ocifacts as of
 
-from modelos.pkg.repo import PkgRepo
+from modelos.pkg.repo import PkgRepo, pkgrepo_from_uri
 from modelos.pkg.info import PkgInfo
-from modelos.env.image.registry import get_img_labels, get_repo_tags
 from modelos.pkg.id import PkgID
 from modelos.config import Config
 from modelos.util.path import list_files
+from modelos.virtual.container.registry import get_repo_labels, get_repo_tags, delete_repo_tag
+from modelos.pkg.version import hash_all, hash_files, compare_file_hashes, bump_version
+from modelos.pkg.util import copy_any, rm_any
+
+StrPath = Union[str, Path]
 
 
 class Pkg:
@@ -24,20 +28,36 @@ class Pkg:
 
     _root_dir: str
     _id: PkgID
+    _repo: PkgRepo
+    _version: str
 
     def __init__(
         self,
         name: str,
-        files: Optional[List[str]] = None,
+        files: Optional[Union[List[str], str]] = None,
         description: Optional[str] = None,
         version: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
         repo: Optional[Union[PkgRepo, str]] = None,
         config: Optional[Config] = None,
     ) -> None:
-        """A versioned filesystem"""
+        """A versioned filesystem
 
-        repo = self._get_repo(repo, config)
+        Args:
+            name (str): Name of the package
+            files (Optional[List[str]], optional): Files to add. Defaults to None.
+            description (Optional[str], optional): Description of the package. Defaults to None.
+            version (Optional[str], optional): Version of the package. Defaults to None.
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+            config (Optional[Config], optional): Config to use to find repo. Defaults to None.
+        """
+        if isinstance(files, str):
+            files = [files]
+
+        self._repo = self._get_repo(repo, config)
 
         if self.exists(name):
             try:
@@ -52,22 +72,42 @@ class Pkg:
         if files is None:
             raise ValueError("'files' parameter must be set when creating a new package")
 
-        pkg = self.new(name, description, files, version=version, labels=labels, repo=repo, config=config)
+        pkg = self.new(
+            name, description, files, version=version, labels=labels, tags=tags, repo=self._repo, config=config
+        )
         self._id = pkg._id
         self._root_dir = pkg._root_dir
+        self._version = pkg._version
 
     @classmethod
     def new(
         cls,
-        name,
+        name: str,
         description: str,
-        files: List[str],
+        files: Union[List[str], str],
         version: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
         repo: Optional[Union[PkgRepo, str]] = None,
         config: Optional[Config] = None,
     ) -> Pkg:
+        """Create a new package
+
+        Args:
+            name (str): Name of the package
+            description (str): Description of the package
+            files (List[str]): Files to add to the package
+            version (Optional[str], optional): Version of the package. Defaults to auto versioning.
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            repo (Optional[Union[PkgRepo, str]], optional): Repo for the package. Defaults to None.
+            config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+
+        Returns:
+            Pkg: A package
+        """
+        if isinstance(files, str):
+            files = [files]
         if labels is None:
             labels = {}
 
@@ -77,51 +117,24 @@ class Pkg:
         repo = cls._get_repo(repo, config)
 
         if version is None:
-            hash_full = hashlib.new("sha256")
-            for fp in files:
-                with open(fp) as f:
-                    hash_full.update(f.read().encode())
+            version = hash_all(files)
 
-            version = hash_full.hexdigest()
-
-        id = PkgID(name, version, repo.host, repo.name)
+        id = repo.build_id(name, version)
 
         verdir = cls._pkg_local_dir(id)
         os.makedirs(verdir)
 
-        file_hash = {}
-
-        def hash_file(fp: str) -> str:
-            hash = hashlib.new("sha256")
-            with open(fp) as f:
-                hash.update(f.read().encode())
-            return hash.hexdigest()
-
         for fp in files:
-            if os.path.isdir(fp):
-                file_set = set()
+            copy_any(fp, id.to_path())
 
-                for dir_, _, files in os.walk(fp):
-                    for file_name in files:
-                        rel_dir = os.path.relpath(dir_, fp)
-                        rel_file = os.path.join(rel_dir, file_name)
-                        file_set.add(rel_file)
-                        hash = hash_file(fp)
-                        file_hash[rel_file] = hash
-                shutil.copytree(fp, id.to_path())
+        file_hashes = hash_files(files)
 
-            elif os.path.isfile(fp):
-                hash = hash_file(fp)
-                name = os.path.basename(fp)
-                file_hash[name] = hash
+        info = PkgInfo(version, description, labels, tags, file_hashes)
 
-            else:
-                logging.warn(f"skipping path '{fp}' as it is not a directory or file")
+        info.write(id)
 
-        info = PkgInfo(version, description, labels, tags, file_hash)
-        cls._write_info(id, info)
-
-        return cls.from_id(id)
+        pkg = cls.from_id(id)
+        return pkg
 
     @classmethod
     def from_id(cls, id: PkgID) -> Pkg:
@@ -137,51 +150,42 @@ class Pkg:
         pkg._id = id
         out = id.to_path()
         pkg._root_dir = out
+        pkg._version = id.version
+        pkg._repo = pkgrepo_from_uri(id.repo_uri())
 
         return pkg
 
-    @classmethod
     def push(
-        cls: Type[Pkg],
-        filepath: str,
-        name: str,
-        description: str,
-        version: str,
+        self,
         labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
         repo: Optional[Union[PkgRepo, str]] = None,
         config: Optional[Config] = None,
-    ) -> Pkg:
+    ) -> None:
         """Push a package
 
         Args:
-            cls (Type[Pkg]): _description_
-            filepath (str): Filepath to push
             name (str): Name of the pkg
-            description (str): Description of the pkg
-            version (str): Version of the pkg.
             labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
+            tags (Optional[str], optional): Tags to add. Defaults to None
             repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use
-
-        Returns:
-            Pkg: A package
         """
-        repo = cls._get_repo(repo, config)
+        repo = self._get_repo(repo, config)
 
-        id = PkgID(name, version, repo.host, repo.name)
-        uri = id.to_uri()
-        pkg_path = id.to_path()
-
+        info = self.info()
         if not labels:
             labels = {}
 
-        labels["description"] = description
+        if not tags:
+            tags = []
 
-        shutil.copytree(filepath, pkg_path)
-        of.push(uri, filepath=pkg_path, labels=labels)
-        logging.info(f"pushed '{filepath}' to '{uri}'")
+        labels["description"] = info.description
+        labels["tags"] = json.dumps(tags)
+        of.push(str(self._id), filepath=self._root_dir, labels=labels)
+        logging.info(f"pushed {str(self._id)}")
 
-        return cls.from_id(id)
+        return None
 
     @classmethod
     def pull(
@@ -217,8 +221,7 @@ class Pkg:
                 if version is None:
                     raise ValueError(f"could not find version '{version}' for '{name}'")
                 logging.info(f"using version: {version}")
-
-            id = PkgID(name, version, repo.host, repo.name)
+            id = repo.build_id(name, version)
         else:
             id = PkgID.parse(uri)
 
@@ -309,7 +312,7 @@ class Pkg:
         Args:
             filepath (str): Filepath to add
         """
-        pass
+        copy_any(filepath, self._root_dir)
 
     def cp(self, src: str, dest: str) -> None:
         """Copy the src to the dest, to reference the package use pkg://mydir/file.txt
@@ -318,7 +321,23 @@ class Pkg:
             src (str): Copy from
             dest (str): Copy to
         """
-        pass
+        if src.startswith("pkg://"):
+            src = src.lstrip("pkg://")
+            src = str(Path(self._root_dir).joinpath(src))
+
+        if dest.startswith("pkg://"):
+            dest = src.lstrip("pkg://")
+            dest = str(Path(self._root_dir).joinpath(dest))
+
+        copy_any(src, dest)
+
+    def rm(self, filepath: str) -> None:
+        """Remove the relative filepath from the package
+
+        Args:
+            filepath (str): The relative filepath
+        """
+        rm_any(str(Path(self._root_dir).joinpath(filepath)))
 
     def root_dir(self) -> str:
         """Root dir of the package
@@ -336,6 +355,120 @@ class Pkg:
         """
         return self._id
 
+    def delete(self) -> None:
+        """Delete the package
+
+        Returns:
+            PkgID: ID
+        """
+        delete_repo_tag(
+            self._id.repo_uri(),
+            self._id.tag(),
+        )
+        logging.info(f"deleted '{str(self._id)}'")
+
+    def open(self, filepath: str) -> TextIOWrapper:
+        """Open a file in a package
+
+        Args:
+            filepath (str): The filepath to open
+
+        Returns:
+            TextIOWrapper: A TextIOWrapper
+        """
+
+        return open(Path(self._root_dir).joinpath(filepath))
+
+    def all_files(self, relative: bool = True) -> List[str]:
+        """All files in the package
+
+        Args:
+            relative (str): Whether to return relative paths
+
+        Returns:
+            List[str]: List of filepaths
+        """
+        file_set = set()
+
+        for dir_, _, files in os.walk(self.root_dir()):
+            for file_name in files:
+                if relative:
+                    dir_ = os.path.relpath(dir_, self.root_dir())
+                rel_file = os.path.join(dir_, file_name)
+                file_set.add(rel_file)
+
+        return list(file_set)
+
+    def hash(self) -> str:
+        """Calculate the version hash based on the package contents
+
+        Returns:
+            str: A SHA256 version hash
+        """
+        return hash_all(self.all_files(relative=False))
+
+    def release(
+        self,
+        version: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        repo: Optional[Union[PkgRepo, str]] = None,
+        config: Optional[Config] = None,
+        remote: bool = True,
+    ) -> None:
+        """Release the package
+
+        Args:
+            version (str, optional): Version of the release. Defaults to auto-versioning
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            repo (Optional[Union[PkgRepo, str]], optional): Repo for the package. Defaults to None.
+            config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+            remote (bool, optional): Whether to push remote as well. Defaults to True.
+        """
+        repo = self._get_repo(repo, config)
+
+        current_info = self.info()
+        if version is None:
+            latest = self.latest_release(self._id.name)
+            if not latest:
+                latest = "v0.0.1"
+            latest_pkg = self.pull(self._id.name, latest, force=True)
+            current_hashes = hash_files(self.all_files(relative=False))
+            latest_hashes = hash_files(latest_pkg.all_files(relative=True))
+            version_bump = compare_file_hashes(current_hashes, latest_hashes)
+            current_info.file_hash = current_hashes
+
+            version = bump_version(latest, version_bump)
+            if version == latest:
+                raise ValueError("The current package is the same as the latest release")
+            current_info.version = version
+
+        if labels is not None:
+            current_info.labels = labels
+        if tags is not None:
+            current_info.tags = tags
+
+        old_path = self._id.to_path()
+        self._id.version = version
+        os.rename(old_path, self._id.to_path())
+
+        current_info.write(self._id)
+
+        logging.info(f"successfully released '{self._id.name}' at version '{version}'")
+
+        return
+
+    def info(self) -> PkgInfo:
+        """Get current package info
+
+        Returns:
+            PkgInfo: Package info
+        """
+        meta_path = self._pkg_local_dir(self._id).joinpath("./info.yaml")
+        with open(meta_path) as f:
+            return yaml.load(f, Loader=yaml.FullLoader)
+
     @classmethod
     def describe(cls, uri: str) -> None:
         """Describe the URI
@@ -344,7 +477,7 @@ class Pkg:
             uri (str): URI to describe
         """
         id = PkgID.parse(uri)
-        labels = get_img_labels(uri)
+        labels = get_repo_labels(uri)
         desc = labels.pop("description")
         dct = {"repo": f"{id.host}/{id.repo}", "name": id.name, "description": desc, "labels": labels}
         print(yaml.dump(dct))
@@ -354,6 +487,8 @@ class Pkg:
     @classmethod
     def _get_repo(cls, repo: Optional[Union[PkgRepo, str]] = None, config: Optional[Config] = None) -> PkgRepo:
         if repo is None:
+            if hasattr(cls, "_repo"):
+                return cls._repo
             if config is None:
                 config = Config()
 
@@ -367,7 +502,7 @@ class Pkg:
         if isinstance(repo, PkgRepo):
             return repo
 
-        return PkgRepo(repo)
+        return pkgrepo_from_uri(repo)
 
     @classmethod
     def _pkg_local_dir(cls, id: PkgID) -> Path:
@@ -375,32 +510,30 @@ class Pkg:
         verdir = Path(pkg_path).joinpath(".pkg")
         return verdir
 
-    def _read_info(self) -> PkgInfo:
-        meta_path = self._pkg_local_dir(self._id).joinpath("./info.yaml")
-        with open(meta_path) as f:
-            return yaml.load(f, Loader=yaml.FullLoader)
 
-    @classmethod
-    def _write_info(cls, id: PkgID, info: PkgInfo) -> None:
-        meta_path = cls._pkg_local_dir(id).joinpath("./info.yaml")
-        with open(meta_path) as f:
-            yam_map = yaml.dump(info)
-            f.write(yam_map)
-
-
-def push(filepath: str, uri: str, description: str, labels: Optional[Dict[str, str]] = None) -> Pkg:
+def push(
+    files: Union[List[str], str],
+    uri: str,
+    description: str,
+    labels: Optional[Dict[str, str]] = None,
+    tags: Optional[List[str]] = None,
+) -> Pkg:
     """Push a package
 
     Args:
-        filepath (str): Local filepath to push
+        files (str): Local filepath(s) to push
         uri (str): URI to push to
         description (str): Description of the package
         labels(Dict[str, str], optional): Labels for the package
+        tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
 
     Returns:
         Pkg: A package
     """
-    return Pkg.push(filepath, uri, description, labels)
+    id = PkgID.parse(uri)
+    pkg = Pkg(id.name, files, description, id.version, labels, tags, id.repo)
+    pkg.push()
+    return pkg
 
 
 def pull(uri: str) -> Pkg:
@@ -450,55 +583,3 @@ def describe(uri: str) -> None:
         uri (str): URI to describe
     """
     return Pkg.describe(uri)
-
-
-class Stage:
-    """A stage is an mutable filesystem used to make new packages"""
-
-    _from_pkg: Pkg
-    _stage_pkg: Pkg
-
-    def __init__(self, pkg: Pkg, new_version: str) -> None:
-        """Create a mutable filesystem from a stage
-
-        Args:
-            pkg (Pkg): Package to create the stage from
-            new_version (str): New version of the changes
-        """
-        self._from_pkg = pkg
-        shutil.copytree(
-            pkg.root_dir(),
-        )
-
-    def open(self, filepath: str) -> TextIOWrapper:
-        """Open a file in a package
-
-        Args:
-            filepath (str): The filepath to open
-
-        Returns:
-            TextIOWrapper: A TextIOWrapper
-        """
-
-        return open(Path(self._stage_pkg.root_dir()).joinpath(filepath))
-
-    def release(self, remote: bool = True) -> Pkg:
-        """Release the stage as a package
-
-        Args:
-            remote (bool, optional): Whether to push remote as well. Defaults to True.
-
-        Returns:
-            Pkg: The new package
-        """
-        pass
-
-    def delete(self) -> None:
-        """Delete the stage"""
-        shutil.rmtree(self._stage_pkg.root_dir())
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.delete()
