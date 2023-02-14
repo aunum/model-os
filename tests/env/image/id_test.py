@@ -1,4 +1,4 @@
-from modelos.env.image.id import ImageID
+from modelos.virtual.container.id import ImageID
 
 
 def test_from_ref():

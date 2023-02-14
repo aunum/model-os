@@ -27,7 +27,7 @@ from docker.auth import load_config
 
 from modelos.config import Config
 from modelos.run.kube.env import is_k8s_proc
-from modelos.env.image.client import default_socket
+from modelos.virtual.container.client import default_socket
 
 AUTH_HASH_LABEL = "auth-hash"
 

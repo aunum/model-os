@@ -134,7 +134,7 @@ def is_git_root(current_path: Optional[str] = None, pattern: Optional[str] = Non
     return False
 
 
-def has_arc_yaml(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
+def has_mdl_repo(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
     path = detect(current_path, pattern)
     if path is None:
         return False
@@ -147,7 +147,7 @@ def has_arc_yaml(current_path: Optional[str] = None, pattern: Optional[str] = No
     return False
 
 
-def load_arc_yaml(current_path: Optional[str] = None, pattern: Optional[str] = None) -> Dict[str, Any]:
+def load_mdl_repo(current_path: Optional[str] = None, pattern: Optional[str] = None) -> Dict[str, Any]:
     path = detect(current_path, pattern)
     if path is None:
         raise ValueError("could not find root path")

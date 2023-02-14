@@ -6,6 +6,8 @@ from enum import Enum
 
 from semver import VersionInfo
 
+VERSION_HASH_LENGTH = 7
+
 
 class VersionBump(Enum):
     """The version bump needed"""
@@ -48,9 +50,9 @@ def hash_file(fp: str) -> str:
         str: A SHA256 hash
     """
     hash = hashlib.new("sha256")
-    with open(fp) as f:
+    with open(fp, "r") as f:
         hash.update(f.read().encode())
-    return hash.hexdigest()
+    return hash.hexdigest()[:VERSION_HASH_LENGTH]
 
 
 def hash_files(files: List[str]) -> Dict[str, str]:
@@ -64,15 +66,21 @@ def hash_files(files: List[str]) -> Dict[str, str]:
     """
     file_hash = {}
     for fp in files:
+        if not os.path.exists(fp):
+            raise ValueError(f"file '{fp}' does not exist")
         if os.path.isdir(fp):
             file_set = set()
 
             for dir_, _, files in os.walk(fp):
+                if os.path.basename(os.path.normpath(dir_)) == ".mdl":
+                    continue
                 for file_name in files:
                     rel_dir = os.path.relpath(dir_, fp)
                     rel_file = os.path.join(rel_dir, file_name)
                     file_set.add(rel_file)
-                    hash = hash_file(fp)
+
+                    pth = os.path.join(dir_, file_name)
+                    hash = hash_file(pth)
                     file_hash[rel_file] = hash
 
         elif os.path.isfile(fp):
@@ -81,7 +89,7 @@ def hash_files(files: List[str]) -> Dict[str, str]:
             file_hash[name] = hash
 
         else:
-            logging.warn(f"skipping path '{fp}' as it is not a directory or file")
+            logging.warn(f"& skipping path '{fp}' as it is not a directory or file")
     return file_hash
 
 
@@ -94,12 +102,34 @@ def hash_all(files: List[str]) -> str:
     Returns:
         str: A SHA256 hash
     """
-    hash_full = hashlib.new("sha256")
+    hash = hashlib.new("sha256")
+    norm_files = []
     for fp in files:
-        with open(fp) as f:
-            hash_full.update(f.read().encode())
+        fp = os.path.normpath(fp)
+        norm_files.append(fp)
 
-    version = hash_full.hexdigest()
+    norm_files.sort()
+    for fp in norm_files:
+        if not os.path.exists(fp):
+            raise ValueError(f"file '{fp}' does not exist")
+        if os.path.isdir(fp):
+            for dir_, _, files in os.walk(fp):
+                if os.path.basename(os.path.normpath(dir_)) == ".mdl":
+                    continue
+                for file_name in files:
+                    ff = os.path.join(dir_, file_name)
+                    with open(ff, "r") as f:
+                        b = f.read().encode()
+                        hash.update(b)
+
+        elif os.path.isfile(fp):
+            with open(fp, "r") as f:
+                hash.update(f.read().encode())
+
+        else:
+            logging.warn(f"# skipping path '{fp}' as it is not a directory or file")
+
+    version = hash.hexdigest()[:VERSION_HASH_LENGTH]
     return version
 
 

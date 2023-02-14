@@ -98,24 +98,26 @@ def get_repo_tags(repo: str, client: Optional[NewClient] = None) -> List[str]:
 
     req = client.NewRequest("GET", "/v2/<name>/tags/list", WithName(repo_name))
     response = client.Do(req)
+    if response.status_code == 404:
+        return []
+    if response.status_code != 200:
+        raise SystemError(f"unable to get repo tags: {response}")
     jdict = response.json()
-    print("tags repsonse: ", jdict)
     return jdict["tags"]
 
 
-def delete_repo_tag(repo: str, tag: str, client: Optional[NewClient] = None) -> List[str]:
+def delete_repo_tag(repo: str, tag: str, client: Optional[NewClient] = None) -> None:
     """Delete repo tag
 
     Args:
         repo (str): Repo URI e.g. aunum/ml-project
         tag (str): Tag to delete
         cli (docker.APIClient, optional): Docker client. Defaults to None.
-
-    Returns:
-        List[str]: A list of tags
     """
+    if tag is None:
+        raise ValueError("tag cannot be None")
 
-    repository, tag = parse_repository_tag(repo)
+    repository, _ = parse_repository_tag(repo)
     _, repo_name = resolve_repository_name(repository)
 
     repo_name = clean_repo_name(repo_name)
@@ -125,16 +127,15 @@ def delete_repo_tag(repo: str, tag: str, client: Optional[NewClient] = None) -> 
 
     req = client.NewRequest("DELETE", "/v2/<name>/manifests/<reference>", WithName(repo_name), WithReference(tag))
     response = client.Do(req)
-    jdict = response.json()
-    print("tags repsonse: ", jdict)
-    return jdict["tags"]
+    if response.status_code != 200 and response.status_code != 202:
+        raise ValueError(f"trouble executing request: {response}")
 
 
-def get_repo_labels(uri: str) -> Dict[str, Any]:
-    """Get any labels for a repo
+def get_img_labels(uri: str) -> Dict[str, Any]:
+    """Get any labels for an image
 
     Args:
-        uri (str): Repo URI to get labels for e.g. aunum/ml-project
+        uri (str): Image URI to get labels for e.g. aunum/ml-project:v1.0
 
     Returns:
         Dict[str, Any]: Dictionary of labels

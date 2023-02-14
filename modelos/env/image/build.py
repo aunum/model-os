@@ -10,10 +10,10 @@ from docker import APIClient
 
 # import enlighten  # use rich
 
-from modelos.env.image.file import Dockerfile, write_dockerfile, MDL_DOCKERFILE_NAME
-from modelos.env.image.id import ImageID
+from modelos.virtual.container.file import Dockerfile, write_dockerfile, MDL_DOCKERFILE_NAME
+from modelos.virtual.container.id import ImageID
 from modelos.config import Config, RemoteSyncStrategy
-from modelos.env.image.client import default_socket
+from modelos.virtual.container.client import default_socket
 from modelos.scm import SCM
 from modelos.util.rootpath import load_conda_yaml
 
@@ -100,7 +100,10 @@ def img_id(
         ImageID: An ImageID
     """
     if image_repo is None:
-        image_repo = Config().image_repo
+        cfg = Config()
+        if cfg.image_repo is None:
+            raise ValueError("must supply image repo")
+        image_repo = cfg.image_repo
 
     if scm is None:
         scm = SCM()

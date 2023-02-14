@@ -1,90 +1,36 @@
-from abc import ABC, abstractmethod
-from typing import List, Optional
+from typing import Optional
+
+from .remote import RemotePkgRepo
+from .local import LocalPkgRepo
+from modelos.config import Config
+from .util import remote_pkgrepo_from_uri
 
 
-from modelos.pkg.id import PkgID
+class PkgRepo:
+    """A package repository"""
 
+    local: LocalPkgRepo
+    remote: RemotePkgRepo
 
-class PkgRepo(ABC):
-    """Package repository"""
+    def __init__(
+        self,
+        remote: Optional[RemotePkgRepo] = None,
+        local: Optional[LocalPkgRepo] = None,
+        config: Optional[Config] = None,
+    ) -> None:
+        if remote is None:
+            if config is None:
+                config = Config()
+            repo_uri = config.pkg_repo
+            if repo_uri is None:
+                raise ValueError(
+                    "could not determine remote repo uri, please set"
+                    + " the 'remote' parameter, or configure mdl.yaml, or pyproject.toml"
+                )
+            remote = remote_pkgrepo_from_uri(repo_uri)
 
-    @abstractmethod
-    def names(self) -> List[str]:
-        """Names of the packages in the repo
+        self.remote = remote
 
-        Returns:
-            List[str]: Names of packages
-        """
-        pass
-
-    @abstractmethod
-    def versions(self, name: str) -> List[str]:
-        """Versions of a package
-
-        Args:
-            name (str): Name of the package
-
-        Returns:
-            List[str]: List of package versions
-        """
-        pass
-
-    @abstractmethod
-    def latest(self, name: str) -> Optional[str]:
-        """Latest release
-
-        Args:
-            name (str): Name of the package
-
-        Returns:
-            Optional[str]: Latest release, or none if no releases
-        """
-        pass
-
-    @abstractmethod
-    def releases(self, name: str) -> List[str]:
-        """Releases for the package
-
-        Args:
-            name (str): Name of the package
-
-        Returns:
-            List[str]: A list of releases
-        """
-        pass
-
-    @abstractmethod
-    def ids(self) -> List[str]:
-        """Ids of all packages
-
-        Returns:
-            List[str]: A list of ids
-        """
-
-    @abstractmethod
-    def delete(self, name: str, version: str) -> None:
-        """Delete a pkg
-
-        Args:
-            name (str): Name of the pkg
-            version (Optional[str], optional): Versions to delete, use 'all' for all versions. Defaults to None.
-        """
-        pass
-
-    @abstractmethod
-    def clean(self) -> None:
-        """Delete all non-releases"""
-        pass
-
-    @abstractmethod
-    def build_id(self, name: str, version: str) -> PkgID:
-        """Build a PkgID for the given name / version
-
-        Args:
-            name (str): Name of the package
-            version (str): Version of the package
-
-        Returns:
-            PkgID: A PkgID
-        """
-        pass
+        if local is None:
+            local = LocalPkgRepo(config=config)
+        self.local = local

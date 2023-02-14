@@ -645,7 +645,7 @@ signedtoken = ["cryptography (>=3.0.0)", "pyjwt (>=2.0.0,<3)"]
 
 [[package]]
 name = "ocifacts"
-version = "0.0.7"
+version = "0.0.9"
 description = "OCI Artifacts for Python"
 category = "main"
 optional = false
@@ -1213,7 +1213,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "flake8 (<5)", "pytest-co
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "384086420f271dc63eed43f944a207bb10a89a0e0328541836e927495562e443"
+content-hash = "8ff943252fbbad6af338a3d3773cf49b62bfaee78f7c8a7b2bff9e0222580231"
 
 [metadata.files]
 anyio = []

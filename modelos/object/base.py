@@ -62,7 +62,7 @@ import isort
 from unimport.main import Main as unimport_main
 
 from modelos.run.kube.sync import copy_file_to_pod
-from modelos.env.image.client import default_socket
+from modelos.virtual.container.client import default_socket
 from modelos.env.image.build import REPO_ROOT, find_or_build_img, img_command, build_dockerfile
 from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
@@ -72,10 +72,10 @@ from modelos.run.kube.pod_util import (
     SYNC_STRATEGY_LABEL,
     wait_for_pod_ready,
 )
-from modelos.env.image.file import write_dockerfile
+from modelos.virtual.container.file import write_dockerfile
 from modelos.config import Config, RemoteSyncStrategy
 from modelos.scm import SCM
-from modelos.env.image.registry import get_img_labels, get_repo_tags
+from modelos.virtual.container.registry import get_img_labels, get_repo_tags
 from modelos.run.kube.env import is_k8s_proc
 from modelos.run.kube.auth_util import ensure_cluster_auth_resources
 from modelos.env.image.build import img_id, client_hash
@@ -582,6 +582,8 @@ class Client(Kind):
         if repositories is None:
             if cfg is None:
                 cfg = Config()
+            if cfg.image_repo is None:
+                raise ValueError("Must supply an image repo")
             repositories = [cfg.image_repo]
 
         if repositories is None:
@@ -1713,6 +1715,8 @@ class Object(Kind):
         if repositories is None:
             if cfg is None:
                 cfg = Config()
+            if cfg.image_repo is None:
+                raise ValueError("must supply an image repo")
             repositories = [cfg.image_repo]
 
         if repositories is None:

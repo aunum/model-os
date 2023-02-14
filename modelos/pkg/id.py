@@ -1,26 +1,63 @@
 from __future__ import annotations
-from typing import Type, Tuple
 import re
 from pathlib import Path
+from dataclasses import dataclass
+import yaml
 
 from modelos.local import pkg_home
-from modelos.virtual.container.id import ImageID
+
+
+@dataclass
+class NVS:
+    """Name, version, scheme of the pkg"""
+
+    name: str
+    version: str
+    scheme: str = "fs"
+
+    @classmethod
+    def parse(cls, s: str) -> NVS:
+        """Parse the given string to an SNV
+
+        Args:
+            s (str): String to parse
+
+        Returns:
+            SNV: An SNV
+        """
+        tag_split = s.split(".")
+
+        if tag_split[0] != "pkg":
+            raise ValueError(f"namever '{s}' is not a package")
+
+        scheme = tag_split[1]
+        name = tag_split[2]
+
+        version_split = tag_split[3:]
+        version = ".".join(version_split)
+
+        return NVS(scheme, name, version)
+
+    def __str__(self):
+        return f"pkg.{self.scheme}.{self.name}.{self.version}"
 
 
 class PkgID:
     """Package ID"""
 
+    scheme: str
     name: str
     version: str
     host: str
     repo: str
 
-    def __init__(self, name: str, version: str, host: str, repo: str) -> None:
+    def __init__(self, name: str, version: str, scheme: str, host: str, repo: str) -> None:
         """A Package ID
 
         Args:
             name (str): Name of the pkg
             version (str): Version of the pkg
+            scheme (str): Scheme of the pkg
             host (str): Host of the repo
             repo (str): Repository of the pkg
         """
@@ -30,76 +67,29 @@ class PkgID:
         self.version = version
         self.repo = repo
         self.host = host
+        self.scheme = scheme
 
     @classmethod
-    def parse(cls: Type[PkgID], uri: str) -> PkgID:
-        """Parse a package URI
+    def parse_nvs(cls, nvs: str) -> NVS:
+        """Parse nvs string
 
         Args:
-            uri (str): URI to parse
+            nvs (str): NVS string to parse
 
         Returns:
-            PkgID: An ID
+            NVS: An NVS
         """
+        return NVS.parse(nvs)
 
-        id = ImageID.from_ref(uri)
-        name, version = cls.parse_tag(id.tag)
-
-        return PkgID(name, version, id.host, id.repository)
-
-    @classmethod
-    def parse_tag(cls, tag: str) -> Tuple[str, str]:
-        """Parse tag into name / version
-
-        Args:
-            tag (str): Tag to parse
+    def nvs(self) -> NVS:
+        """NVS for this ID
 
         Returns:
-            Tuple[str, str]: Name and version
+            NVS: The NVS
         """
-        tag_split = tag.split(".")
+        return NVS(self.name, self.version, self.scheme)
 
-        if tag_split[0] != "pkg":
-            raise ValueError(f"tag '{tag}' is not a package")
-
-        name = tag_split[1]
-
-        version_split = tag_split[2:]
-        version = ".".join(version_split)
-
-        return name, version
-
-    def to_uri(self) -> str:
-        """Convert to URI
-
-        Returns:
-            str: A URI
-        """
-        uri = f"{self.repo}:pkg.{self.name}.{self.version}"
-        if self.host != "docker.io":
-            uri = f"{self.host}/{uri}"
-        return uri
-
-    def tag(self) -> str:
-        """Tag for this ID
-
-        Returns:
-            str: The tag
-        """
-        return f"pkg.{self.name}.{self.version}"
-
-    def repo_uri(self) -> str:
-        """Get repo URI
-
-        Returns:
-            str: A URI
-        """
-        uri = self.repo
-        if self.host != "docker.io":
-            uri = f"{self.host}/{uri}"
-        return uri
-
-    def to_path(self) -> str:
+    def local_path(self) -> str:
         """Convert the ID to a local path
 
         Returns:
@@ -117,4 +107,4 @@ class PkgID:
         return out
 
     def __str__(self):
-        return self.to_uri()
+        return yaml.dump(self.__dict__)

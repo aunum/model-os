@@ -16,7 +16,7 @@ from kubernetes import config
 from kubernetes.stream import stream
 
 from modelos.config import RemoteSyncStrategy
-from modelos.env.image.id import ImageID
+from modelos.virtual.container.id import ImageID
 from modelos.scm import SCM
 from modelos.env.image.build import find_or_build_img, REPO_ROOT
 from modelos.run.kube.pod_util import (
