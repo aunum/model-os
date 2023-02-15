@@ -105,12 +105,13 @@ def dockerfile_path() -> str:
 
 
 def write_dockerfile(c: Dockerfile) -> str:
+    delete_dockerfile()
     path = dockerfile_path()
     with open(path, "w") as f:
         f.write(str(c))
     return path
 
 
-def delete_containerfile() -> None:
+def delete_dockerfile() -> None:
     logging.info("deleting generated dockerfile")
     os.remove(dockerfile_path())

@@ -84,7 +84,6 @@ __v1__: interface version
 __v1.2__: class version   
 __v1.2.3__: instance version   
 
-See more about versioning in [versioning.md](./versioning.md)
 
 ### Using Objects
 Install a client from a release and use it to generate a remote instance

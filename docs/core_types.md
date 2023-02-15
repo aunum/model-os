@@ -22,10 +22,10 @@ List contents of repo
 $ mdl list repo
 
 URI                                                LAST_UPDATED
-acme.org/ml-project:obj-ham-v1.2.3                 2020-02-04 07:46:29
-acme.org/ml-project:pkg-mnist-v2.1.3               2022-08-12 21:30:10
-acme.org/ml-project:env-ml-project-fi3j450         2021-03-11 13:54:31
-acme.org/ml-project:fn-echo-v1.1.5                 2021-01-02 08:28:36
+acme.org/ml-project:obj.ham.v1.2.3                 2020-02-04 07:46:29
+acme.org/ml-project:pkg.mnist.v2.1.3               2022-08-12 21:30:10
+acme.org/ml-project:env.ml-project.fi3j450         2021-03-11 13:54:31
+acme.org/ml-project:fn.echo.v1.1.5                 2021-01-02 08:28:36
 ```
 
 ## Object
@@ -88,8 +88,6 @@ Example release URI: `acme.org/ml-project:obj.ham.v1.2.3`
 __v1__: interface version   
 __v1.2__: class version   
 __v1.2.3__: instance version   
-
-See more about versioning in [versioning.md](./versioning.md)
 
 ### Using Objects
 Install a client from a release and use it to generate a remote instance

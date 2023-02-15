@@ -12,10 +12,9 @@ WORKDIR /app/
 COPY ./poetry.lock ./pyproject.toml /app/
 RUN poetry install --no-ansi --no-root
 EXPOSE 8000
-COPY ["Dockerfile.mdl", ".gitignore", ".pylintrc", "LICENSE", "Makefile", "README.md", "poetry.lock", "pyproject.toml", "/app/"]
-COPY ["static/L_blue.svg", "/app/static/"]
-COPY ["tests/object/base/bar_client.py", "tests/object/base/bar_server.py", "tests/object/base/foo_client.py", "tests/object/base/foo_server.py", "tests/object/base/base_test.py", "/app/tests/object/base/"]
-COPY ["docs/core_types.md", "docs/versioning.md", "/app/docs/"]
+COPY ["tests/object/base/nested/baz_client.py", "tests/object/base/nested/baz_server.py", "tests/object/base/nested/bar.py", "/app/tests/object/base/nested/"]
+COPY [".gitignore", ".pylintrc", "Dockerfile.mdl", "LICENSE", "Makefile", "README.md", "poetry.lock", "pyproject.toml", "/app/"]
+COPY ["docs/core_types.md", "/app/docs/"]
 COPY ["modelos/__init__.py", "modelos/config.py", "modelos/local.py", "modelos/log.py", "modelos/scm.py", "/app/modelos/"]
 COPY ["modelos/env/README.md", "modelos/env/__init__.py", "modelos/env/base.py", "/app/modelos/env/"]
 COPY ["modelos/env/image/build.py", "/app/modelos/env/image/"]
@@ -29,51 +28,13 @@ COPY ["modelos/util/decorate.py", "modelos/util/generic.py", "modelos/util/path.
 COPY ["modelos/virtual/container/client.py", "modelos/virtual/container/file.py", "modelos/virtual/container/id.py", "modelos/virtual/container/registry.py", "/app/modelos/virtual/container/"]
 COPY ["notebooks/test.ipynb", "notebooks/test.yaml", "/app/notebooks/"]
 COPY ["notebooks/data/test.yaml", "/app/notebooks/data/"]
-COPY ["tests/repo_test.py", "tests/scm_test.py", "/app/tests/"]
-COPY ["tests/env/image/build_test.py", "tests/env/image/file_test.py", "tests/env/image/id_test.py", "/app/tests/env/image/"]
-COPY ["tests/object/encoding_test.py", "/app/tests/object/"]
-COPY ["tests/object/base/nested/bar.py", "/app/tests/object/base/nested/"]
-COPY ["tests/pkg/id_test.py", "tests/pkg/pkg_test.py", "/app/tests/pkg/"]
-COPY ["tests/pkg/data/bar.csv", "tests/pkg/data/foo.yaml", "/app/tests/pkg/data/"]
-COPY ["tests/pkg/data/nested/baz.txt", "/app/tests/pkg/data/nested/"]
-COPY .git /app/.git/
-CMD ["poetry", "run", "python", "/app/tests/object/base/bar_server.py"]
-FROM python:3.10.4-slim
-ENV PYTHONUNBUFFERED="1"
-ENV PYTHONDONTWRITEBYTECODE="1"
-ENV PIP_NO_CACHE_DIR="off"
-ENV PIP_DISABLE_PIP_VERSION_CHECK="on"
-ENV POETRY_NO_INTERACTION="1"
-ENV PYTHONPATH="${PYTHONPATH}:/app:/app/"
-RUN apt update && apt install -y watchdog git curl
-RUN pip install poetry==1.2.0 && poetry --version
-WORKDIR /app/
-COPY ./poetry.lock ./pyproject.toml /app/
-RUN poetry install --no-ansi --no-root
-EXPOSE 8000
-COPY ["Dockerfile.mdl", ".gitignore", ".pylintrc", "LICENSE", "Makefile", "README.md", "poetry.lock", "pyproject.toml", "/app/"]
 COPY ["static/L_blue.svg", "/app/static/"]
-COPY ["tests/object/base/bar_client.py", "tests/object/base/bar_server.py", "tests/object/base/foo_client.py", "tests/object/base/foo_server.py", "tests/object/base/base_test.py", "/app/tests/object/base/"]
-COPY ["docs/core_types.md", "docs/versioning.md", "/app/docs/"]
-COPY ["modelos/__init__.py", "modelos/config.py", "modelos/local.py", "modelos/log.py", "modelos/scm.py", "/app/modelos/"]
-COPY ["modelos/env/README.md", "modelos/env/__init__.py", "modelos/env/base.py", "/app/modelos/env/"]
-COPY ["modelos/env/image/build.py", "/app/modelos/env/image/"]
-COPY ["modelos/object/__init__.py", "modelos/object/base.py", "modelos/object/encoding.py", "modelos/object/kind.py", "modelos/object/opts.py", "/app/modelos/object/"]
-COPY ["modelos/pkg/__init__.py", "modelos/pkg/base.py", "modelos/pkg/id.py", "modelos/pkg/info.py", "modelos/pkg/scheme.py", "modelos/pkg/util.py", "modelos/pkg/version.py", "/app/modelos/pkg/"]
-COPY ["modelos/pkg/repo/__init__.py", "modelos/pkg/repo/base.py", "modelos/pkg/repo/gs.py", "modelos/pkg/repo/local.py", "modelos/pkg/repo/oci.py", "modelos/pkg/repo/remote.py", "modelos/pkg/repo/s3.py", "modelos/pkg/repo/util.py", "/app/modelos/pkg/repo/"]
-COPY ["modelos/pkg/scheme/py.py", "/app/modelos/pkg/scheme/"]
-COPY ["modelos/run/README.md", "modelos/run/client.py", "/app/modelos/run/"]
-COPY ["modelos/run/kube/auth_util.py", "modelos/run/kube/env.py", "modelos/run/kube/pod_util.py", "modelos/run/kube/sync.py", "modelos/run/kube/uri.py", "/app/modelos/run/kube/"]
-COPY ["modelos/util/decorate.py", "modelos/util/generic.py", "modelos/util/path.py", "modelos/util/rootpath.py", "/app/modelos/util/"]
-COPY ["modelos/virtual/container/client.py", "modelos/virtual/container/file.py", "modelos/virtual/container/id.py", "modelos/virtual/container/registry.py", "/app/modelos/virtual/container/"]
-COPY ["notebooks/test.ipynb", "notebooks/test.yaml", "/app/notebooks/"]
-COPY ["notebooks/data/test.yaml", "/app/notebooks/data/"]
 COPY ["tests/repo_test.py", "tests/scm_test.py", "/app/tests/"]
 COPY ["tests/env/image/build_test.py", "tests/env/image/file_test.py", "tests/env/image/id_test.py", "/app/tests/env/image/"]
 COPY ["tests/object/encoding_test.py", "/app/tests/object/"]
-COPY ["tests/object/base/nested/bar.py", "/app/tests/object/base/nested/"]
+COPY ["tests/object/base/bar_client.py", "tests/object/base/bar_server.py", "tests/object/base/base_test.py", "tests/object/base/foo_client.py", "tests/object/base/foo_server.py", "/app/tests/object/base/"]
 COPY ["tests/pkg/id_test.py", "tests/pkg/pkg_test.py", "/app/tests/pkg/"]
 COPY ["tests/pkg/data/bar.csv", "tests/pkg/data/foo.yaml", "/app/tests/pkg/data/"]
 COPY ["tests/pkg/data/nested/baz.txt", "/app/tests/pkg/data/nested/"]
 COPY .git /app/.git/
-CMD ["poetry", "run", "python", "/app/tests/object/base/bar_server.py"]
+CMD ["poetry", "run", "python", "/app/tests/object/base/nested/baz_server.py"]

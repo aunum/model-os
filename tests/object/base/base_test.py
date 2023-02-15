@@ -274,6 +274,8 @@ def test_stream():
     for i, s in enumerate(bar.stream("test", 10)):
         assert s == f"{i}: test"
 
+    bar.delete()
+
 
 def test_save():
     BarClient = Bar.client(dev_dependencies=True, clean=False)
@@ -859,11 +861,11 @@ if __name__ == "__main__":
     # print("\n=====\ntesting basic ops\n")
     # test_basic_ops()
 
-    print("\n=====\ntesting stream\n")
-    test_stream()
+    # print("\n=====\ntesting stream\n")
+    # test_stream()
 
-    print("\n=====\ntesting save\n")
-    test_save()
+    # print("\n=====\ntesting save\n")
+    # test_save()
 
     # print("\n=====\ntesting lock\n")
     # test_lock()
@@ -871,11 +873,11 @@ if __name__ == "__main__":
     # print("\n=====\ntesting copy\n")
     # test_copy()
 
-    # print("\n=====\ntesting main obj\n")
-    # test_main_obj()
+    print("\n=====\ntesting main obj\n")
+    test_main_obj()
 
-    # print("\n=====\ntesting union\n")
-    # test_union()
+    print("\n=====\ntesting union\n")
+    test_union()
 
     # print("\n=====\ntesting nested\n")
     # test_nested()

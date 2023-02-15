@@ -25,7 +25,7 @@ if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(
 class BarClient(Client):
     """A resource client for Bar"""
 
-    uri: str = "aunum/mdl-test:bar-01cc4d0-2f0ffa7"
+    uri: str = "aunum/mdl-test:bar-05053de-4836945"
 
     def __init__(self, a: str, b: int, **kwargs) -> None:
         """A Bar resource
