@@ -19,13 +19,13 @@ from modelos.object.opts import Opts, OptsBuilder
 if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(
     Path("base_test.py")
 ):
-    import __main__ as resource_test  # type: ignore # noqa
+    import __main__ as base_test  # type: ignore # noqa
 
 
 class BarClient(Client):
     """A resource client for Bar"""
 
-    uri: str = "aunum/mdl-test:bar-81e30cf-425d56f"
+    uri: str = "aunum/mdl-test:bar-2282ddc-172e7a8"
 
     def __init__(self, a: str, b: int, **kwargs) -> None:
         """A Bar resource

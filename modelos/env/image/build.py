@@ -7,8 +7,7 @@ import subprocess
 import hashlib
 
 from docker import APIClient
-
-# import enlighten  # use rich
+from rich.progress import Progress, TaskID
 
 from modelos.virtual.container.file import Dockerfile, write_dockerfile, MDL_DOCKERFILE_NAME
 from modelos.virtual.container.id import ImageID
@@ -517,6 +516,10 @@ def build_img(
 
     logging.info(f"building image using id '{image_id}'")
 
+    dl_tasks: Dict[str, TaskID] = {}
+    ext_tasks: Dict[str, TaskID] = {}
+    progress: Optional[Progress] = Progress(transient=True)
+    progress.start()  # type: ignore
     for line in cli.build(
         path=os.path.dirname(containerfile_path),
         rm=True,
@@ -525,12 +528,43 @@ def build_img(
         decode=True,
         labels=labels,
     ):
-        try:
+        if "stream" in line:
+            if progress:
+                if progress.live.is_started:
+                    progress.stop()
             line = str(line["stream"])
             if line != "\n":
                 print(line.strip("\n"))
-        except Exception:
-            print(yaml.dump(line))
+        if "progressDetail" in line:
+            if progress is None:
+                progress = Progress(transient=True)
+                progress.start()
+            if not progress.live.is_started:
+                progress.start()
+            if "status" not in line:
+                continue
+            if line["status"] == "Extracting":
+                push_id: str = line["id"]
+                details = line["progressDetail"]
+                if push_id not in ext_tasks:
+                    if "total" not in details:
+                        continue
+                    task_id = progress.add_task(f"extracting layer {push_id}", total=details["total"])
+                    ext_tasks[push_id] = task_id
+                task = ext_tasks[push_id]
+                progress.update(task, completed=details["current"])
+            if line["status"] == "Downloading":
+                push_id = line["id"]
+                details = line["progressDetail"]
+                if push_id not in dl_tasks:
+                    if "total" not in details:
+                        continue
+                    task_id = progress.add_task(f"downloading layer {push_id}", total=details["total"])
+                    dl_tasks[push_id] = task_id
+                task = dl_tasks[push_id]
+                progress.update(task, completed=details["current"])
+            else:
+                print(line)
 
     # if clean:
     # delete_containerfile()
@@ -544,8 +578,6 @@ def push_img(id: ImageID, docker_socket: Optional[str] = None) -> None:
         id (ImageID): image ID to push
         docker_socket (str, optional): docker socket to use. Defaults to None.
     """
-    # manager = enlighten.get_manager()
-    # counters: Dict[str, enlighten.Counter] = {}
 
     if docker_socket is None:
         docker_socket = default_socket()
@@ -554,40 +586,22 @@ def push_img(id: ImageID, docker_socket: Optional[str] = None) -> None:
 
     logging.info("pushing docker image")
 
-    for line in client.push(id.ref(), stream=True, decode=True):
-        print(line)
-        # TODO: fix visualization;  https://github.com/aunum/arc/issues/19
-        # https://github.com/tqdm/tqdm#nested-progress-bars
-        # print(line)
-        # try:
-        #     status = str(line["status"])
-        #     counter_id = line["id"]
-        #     try:
-        #         counters[counter_id]
-        #     except Exception:
-        #         counters[counter_id] = manager.counter(desc=f"{line['id']} {status}")
-
-        #     counters[line["id"]].desc = f"{line['id']} {status}"
-        #     if status == "Pushing":
-        #         counters[counter_id].total = line["progressDetail"]["total"]
-
-        #         counters[counter_id].count = line["progressDetail"]["current"]
-        #         if counters[counter_id].enabled:
-        #             currentTime = time.time()
-        #             counters[counter_id].refresh(elapsed=currentTime - counters[counter_id].start)
-        #     else:
-        #         counters[counter_id].refresh()
-        # except Exception:
-        #     if "status" in line:
-        #         print(line["status"])
-        #     elif "aux" in line:
-        #         break
-        #     else:
-        #         print(yaml.dump(line))
-
-    # for _, counter in counters.items():
-    #     counter.clear()
-    #     counter.close()
+    with Progress() as progress:
+        tasks: Dict[str, TaskID] = {}
+        for line in client.push(id.ref(), stream=True, decode=True):
+            if "status" not in line:
+                continue
+            if line["status"] != "Pushing":
+                continue
+            push_id: str = line["id"]
+            details = line["progressDetail"]
+            if push_id not in tasks:
+                if "total" not in details:
+                    continue
+                task_id = progress.add_task(f"pushing layer {push_id}", total=details["total"])
+                tasks[push_id] = task_id
+            task = tasks[push_id]
+            progress.update(task, completed=details["current"])
 
     logging.info("done pushing image")
     return
