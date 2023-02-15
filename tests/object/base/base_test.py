@@ -858,8 +858,8 @@ if __name__ == "__main__":
     # print("\n=====\ntesting simple create\n")
     # test_simple_create()
 
-    # print("\n=====\ntesting basic ops\n")
-    # test_basic_ops()
+    print("\n=====\ntesting basic ops\n")
+    test_basic_ops()
 
     # print("\n=====\ntesting stream\n")
     # test_stream()
@@ -873,11 +873,11 @@ if __name__ == "__main__":
     # print("\n=====\ntesting copy\n")
     # test_copy()
 
-    print("\n=====\ntesting main obj\n")
-    test_main_obj()
+    # print("\n=====\ntesting main obj\n")
+    # test_main_obj()
 
-    print("\n=====\ntesting union\n")
-    test_union()
+    # print("\n=====\ntesting union\n")
+    # test_union()
 
     # print("\n=====\ntesting nested\n")
     # test_nested()

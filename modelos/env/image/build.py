@@ -159,10 +159,10 @@ def build_dockerfile(
     if scm.is_poetry_project():
         logging.info("building image for poetry project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
-            print("building poetry containerfile")
-            dockerfile = build_poetry_containerfile(scm.load_pyproject(), project_root, base_image, dev_dependencies)
+            logging.info("building poetry dockerfile")
+            dockerfile = build_poetry_dockerfile(scm.load_pyproject(), project_root, base_image, dev_dependencies)
         elif sync_strategy == RemoteSyncStrategy.CONTAINER:
-            print("building poetry base containerfile")
+            logging.info("building poetry env dockerfile")
             dockerfile = build_poetry_base_dockerfile(scm.load_pyproject(), project_root, base_image, dev_dependencies)
         else:
             raise SystemError("unknown sync strategy")
@@ -307,7 +307,7 @@ def build_poetry_base_dockerfile(
     return dockerfile
 
 
-def build_poetry_containerfile(
+def build_poetry_dockerfile(
     pyproject_dict: Dict[str, Any],
     project_root: str,
     base_image: Optional[str] = None,
@@ -503,7 +503,6 @@ def build_img(
         ImageID: An ImageID
     """
 
-    print("writing dockerfile!")
     containerfile_path = write_dockerfile(c)
 
     if docker_socket is None:

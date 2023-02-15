@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "modelos"
-version = "0.1.0"
+version = "0.1.2"
 description = "An operating system for machine learning"
 authors = ["Patrick Barker <patrickbarkerco@gmail.com>"]
 license = "Apache 2.0"
@@ -24,7 +24,7 @@ semver = "^2.13.0"
 xdg = "^5.1.1"
 ocifacts = "^0.0.9"
 lib-programname = "^2.0.5"
-uvicorn = {extras = ["standard"], version = "^0.20.0"}
+uvicorn = { extras = ["standard"], version = "^0.20.0" }
 
 [tool.poetry.dev-dependencies]
 mypy = "^1.0.0"
