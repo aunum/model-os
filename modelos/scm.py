@@ -123,7 +123,6 @@ class SCM:
         def is_excluded(filename: str) -> bool:
             for ex in exclusion_list:
                 if ex in filename:
-                    print("excluding file: ", filename)
                     return True
             return False
 

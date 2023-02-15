@@ -1,4 +1,4 @@
-from typing import Dict, Any, Type, Union, TypeVar, get_args, get_origin
+from typing import Dict, Any, Type, Union, TypeVar, Optional, get_args, get_origin, get_type_hints
 from types import NoneType
 from enum import Enum
 import logging
@@ -17,9 +17,12 @@ def json_is_type_match(t: Type, jdict: Any) -> bool:
     Returns:
         bool: Whether they match
     """
-    # print(f"checking {t} against {jdict}")
     if t == NoneType or t is None:
         return jdict is None
+
+    if is_optional(t):
+        args = get_args(t)
+        return json_is_type_match(args[0], jdict) or json_is_type_match(args[1], jdict)
 
     if jdict is None:
         return t == NoneType
@@ -36,7 +39,7 @@ def json_is_type_match(t: Type, jdict: Any) -> bool:
     elif hasattr(t, "__annotations__"):
         if not is_dict(type(jdict)):
             return False
-        annots: Dict[str, Type] = t.__annotations__
+        annots: Dict[str, Type] = get_type_hints(t)
         for nm, typ in annots.items():
             if not json_is_type_match(typ, jdict[nm]):
                 return False
@@ -96,7 +99,7 @@ def json_is_type_match(t: Type, jdict: Any) -> bool:
         raise ValueError(f"type not supported: {t}")
 
 
-def deep_isinstance(obj: Any, t: Type) -> bool:
+def deep_isinstance(obj: Any, t: Optional[Type]) -> bool:
     """A variation of isinstance that works with type variables
 
     Args:
@@ -106,6 +109,10 @@ def deep_isinstance(obj: Any, t: Type) -> bool:
     Returns:
         bool: Whether it is an instance
     """
+
+    if t is None or t is NoneType:
+        return obj is None
+
     if is_dict(t):
         if not isinstance(obj, dict):
             return False
@@ -144,9 +151,6 @@ def deep_isinstance(obj: Any, t: Type) -> bool:
 
     elif hasattr(t, "__annotations__"):
         return isinstance(obj, t)
-
-    elif t is None or t is NoneType:
-        return obj is None
 
     else:
         raise ValueError(f"type not supported: {t}")
@@ -427,7 +431,7 @@ def encode_any(obj: Any, t: Type) -> Dict[str, Any]:
             d = obj.__dict__
             if hasattr(t, "__annotations__"):
                 ret = {}
-                annotations = t.__annotations__
+                annotations = get_type_hints(t)
                 for nm, typ in annotations.items():
                     _v = _encode_any(d[nm], typ)
                     ret[nm] = _v
@@ -567,7 +571,7 @@ def decode_any(jdict: Dict[str, Any], t: T) -> T:
         return t(jdict)
 
     elif hasattr(t, "__annotations__"):
-        annots = t.__annotations__
+        annots = get_type_hints(t)
         ret_obj = object.__new__(t)  # type: ignore
 
         for k, v in jdict.items():

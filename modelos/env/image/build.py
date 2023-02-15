@@ -34,7 +34,6 @@ def client_hash(client_filepath: str) -> str:
 
         h.update(cli_file)
         cli_hash = h.hexdigest()
-        print("cli hash: ", cli_hash)
         return cli_hash
 
 

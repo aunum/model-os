@@ -11,7 +11,7 @@ def test_pkg_simple():
     repo = "aunum/mdl-test"
     name = "foo"
 
-    print("--- cleaning repo")
+    print("\n--- cleaning repo")
     clean(repo, name, releases=True)
 
     current_dir = os.path.dirname(os.path.realpath(__file__))
@@ -19,7 +19,7 @@ def test_pkg_simple():
 
     pkg = Pkg(name, data_dir, "A foo package", repo=repo)
 
-    print("--- showing pkg")
+    print("\n--- showing pkg")
     pkg.show()
 
     pkg.push()
@@ -39,7 +39,7 @@ def test_pkg_simple():
         lines = f.readlines()
         assert lines[0] == "A Baz!"
 
-    print("--- describing pkg")
+    print("\n--- describing pkg")
     pkg.describe(str(pkg.id()))
 
     info = pkg.info()
@@ -51,7 +51,7 @@ def test_pkg_simple():
 
     assert pkg.latest() is None
 
-    print("--- releasing pkg")
+    print("\n--- releasing pkg")
     pkg.release("v0.0.1", labels={"type": "foo"}, tags=["baz"])
 
     print("latest: ", pkg.latest())
@@ -65,10 +65,10 @@ def test_pkg_simple():
     assert info.name == "foo"
     assert info.description == "A foo package"
 
-    print("--- deleting pkg")
+    print("\n--- deleting pkg")
     pkg.delete()
 
-    print("--- creating new pkg")
+    print("\n--- creating new pkg")
     pkgv1 = Pkg(
         "foo", data_dir, description="A new foo", version="v0.0.1", repo=repo, labels={"type": "foov1"}, tags=["bar"]
     )
@@ -83,7 +83,7 @@ def test_pkg_simple():
         lines = f.readlines()
         assert lines[0] == "A Baz!"
 
-    print("--- releasing pkg again")
+    print("\n--- releasing pkg again")
     pkgv1.release()
     assert pkgv1.latest() == "v0.1.0"
     info = pkgv1.info()
@@ -93,11 +93,11 @@ def test_pkg_simple():
     assert info.name == "foo"
     assert info.description == "A new foo"
 
-    print("--- writing new file")
+    print("\n--- writing new file")
     with pkgv1.open("./new.txt", "w") as f:
         f.write("New!")
 
-    print("--- releasing with new file")
+    print("\n--- releasing with new file")
     pkgv1.release()
     assert pkgv1.latest() == "v0.2.0"
     info = pkgv1.info()

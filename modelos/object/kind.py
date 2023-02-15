@@ -1,5 +1,6 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod, abstractproperty
+from dataclasses import dataclass
 from typing import Dict, Iterable, List, Any, Optional, Type, TypeVar
 
 from modelos.config import Config
@@ -8,6 +9,17 @@ from modelos.object.opts import Opts
 OBJECT_URI_ENV = "OBJECT_URI"
 
 K = TypeVar("K", bound="Kind")
+
+
+@dataclass
+class ObjectInfo:
+    name: str
+    version: str
+    env_sha: str
+    uri: str
+    server_entrypoint: str
+    locked: bool
+    ext: Optional[Dict[str, str]] = None
 
 
 class ObjectLocator(ABC):
@@ -248,11 +260,11 @@ class Kind(ABC):
         pass
 
     @abstractmethod
-    def info(self) -> Dict[str, Any]:
+    def info(self) -> ObjectInfo:
         """Info about the object
 
         Returns:
-            Dict[str, Any]: Object info
+            ObjectInfo: Object info
         """
         pass
 

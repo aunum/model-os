@@ -7,7 +7,6 @@ import types
 import json
 import socket
 import sys
-from abc import ABCMeta
 from typing import Dict, Iterable, List, Any, Optional, Type, TypeVar, Union, get_args, get_type_hints
 import typing
 import inspect
@@ -79,6 +78,7 @@ from modelos.virtual.container.registry import get_img_labels, get_repo_tags
 from modelos.run.kube.env import is_k8s_proc
 from modelos.run.kube.auth_util import ensure_cluster_auth_resources
 from modelos.env.image.build import img_id, client_hash
+from modelos.object.kind import ObjectInfo
 from modelos.run.client import get_client_id
 from modelos.run.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
 from modelos.object.opts import OptsBuilder, Opts
@@ -148,11 +148,6 @@ class Client(Kind):
         cfg: Optional[Config] = None,
         scm: Optional[SCM] = None,
     ) -> None:
-        print("uri start: ", uri)
-
-        if hasattr(self, "uri"):
-            print("self uri: ", self.uri)
-
         if hot is None:
             if hasattr(self, "hot"):
                 hot = self.hot
@@ -212,15 +207,15 @@ class Client(Kind):
             logging.info(f"connecting directly to pod {self.pod_name} in namespace {self.pod_namespace}")
             info = self.info()
             logging.info(f"server info: {info}")
-            self.uri = info["uri"]
+            self.uri = info.uri
             self.artifact_labels = get_img_labels(self.uri)
             return
 
         if server is not None:
-            print("server not none storing cls")
+            logging.info("server provided, storing class")
             self.uri = server.store_cls(dev_dependencies=dev_dependencies, clean=clean, sync_strategy=sync_strategy)
-            if isinstance(server, Object):
-                opts = server.opts()
+            # if isinstance(server, Object):
+            #     opts = server.opts()
         elif uri is not None:
             self.uri = uri
         elif hasattr(self, "uri"):
@@ -228,7 +223,6 @@ class Client(Kind):
         else:
             raise ValueError("Client URI cannot be none. Either 'uri' or 'server' must be provided")
 
-        print("self uri: ", self.uri)
         # Check schema compatibility between client/server https://github.com/aunum/arc/issues/12
         self.artifact_labels = get_img_labels(self.uri)
 
@@ -599,7 +593,7 @@ class Client(Kind):
                     if compatible:
                         cli_hash_found = tag.split("-")[-1]
                         if cli_hash_found != cli_hash:
-                            print(f"bypassing {tag} as it is not compatible with client {cli_hash}")
+                            logging.info(f"bypassing {tag} as it is not compatible with client {cli_hash}")
                             continue
 
                     ret.append(f"{repo_uri}:{tag}")
@@ -650,7 +644,7 @@ class Client(Kind):
         Returns:
             str: URI for the artifact
         """
-        raise NotImplementedError("Not yet implemented")
+        raise NotImplementedError()
 
     @classmethod
     def schema(cls) -> str:
@@ -659,6 +653,7 @@ class Client(Kind):
         Returns:
             str: Object schema
         """
+        # needs to come from the image
         raise NotImplementedError()
 
     def notebook(self) -> None:
@@ -671,6 +666,79 @@ class Client(Kind):
 
     def source(self) -> str:
         """Source code for the object"""
+        raise NotImplementedError()
+
+    def merge(self: C, uri: str) -> C:
+        """Merge with the given resource
+
+        Args:
+            uri (str): Resource to merge with
+
+        Returns:
+            Resource: A Resource
+        """
+        raise NotImplementedError()
+
+    def diff(self, uri: str) -> str:
+        """Diff of the given object from the URI
+
+        Args:
+            uri (str): URI to diff
+
+        Returns:
+            str: A diff
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def base_names(cls) -> List[str]:
+        """Bases for the resource
+
+        Raises:
+            SystemError: Server bases
+
+        Returns:
+            List[str]: Bases of the server
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def clean_artifacts(cls, dir: str = "./artifacts") -> None:
+        """Clean any created artifacts
+
+        Args:
+            dir (str, optional): Directory where artifacts exist. Defaults to "./artifacts".
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def from_opts(cls: Type[C], opts: Type[Opts]) -> C:
+        """Load server from Opts
+
+        Args:
+            opts (Opts): Opts to load from
+
+        Returns:
+            Object: An object
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def opts_schema(cls) -> Dict[str, Any]:
+        """Schema for the server options
+
+        Returns:
+            Dict[str, Any]: JsonSchema for the server options
+        """
+        raise NotImplementedError()
+
+    @classmethod
+    def load(cls: Type[C], dir: str = "./artifacts") -> C:
+        """Load the object
+
+        Args:
+            dir (str): Directory to the artifacts
+        """
         raise NotImplementedError()
 
     @classmethod
@@ -773,10 +841,10 @@ class Client(Kind):
         cls_name = tag.split("-")[0]
 
         info = self.info()
-        version = info["version"]
+        version = info.version
         uri = img_id(RemoteSyncStrategy.IMAGE, tag=f"{cls_name}-{version}")
 
-        server_filepath = info["server-entrypoint"]
+        server_filepath = info.server_entrypoint
 
         labels = self.labels()
         labels[SERVER_PATH_LABEL] = server_filepath
@@ -969,15 +1037,7 @@ class ResourceMetaClass(type):
         return type.__new__(meta, classname, bases, newClassDict)
 
 
-# class CombinedMeta(ResourceMetaClass, ABCMeta):
-#     pass
-
-
 class TypeNotSupportedError(Exception):
-    pass
-
-
-class CombinedMeta(ABCMeta):
     pass
 
 
@@ -1066,6 +1126,9 @@ class Object(Kind):
 
             opts = decode_any(jdict, cls.opts())
             srv = cls.from_opts(opts)  # type: ignore
+        else:
+            logging.info("no config file found, attempting to create class without params")
+            srv = cls()
 
         uri = os.getenv(OBJECT_URI_ENV)
         if uri is None:
@@ -1103,7 +1166,8 @@ class Object(Kind):
         return cls.__name__.lower()
 
     @nolock
-    @classmethod  # I need to solve class methods now :()
+    @classmethod
+    @local
     def base_names(cls) -> List[str]:
         """Bases for the resource
 
@@ -1121,28 +1185,29 @@ class Object(Kind):
         return base_names
 
     @nolock
-    def info(self) -> Dict[str, Any]:
+    def info(self) -> ObjectInfo:
         """Info about the resource
 
         Returns:
             Dict[str, Any]: Resource info
         """
+        # TODO: create info object
         server_filepath = self._server_filepath()
         if is_k8s_proc():
             server_filepath = self._container_server_path(server_filepath)
 
-        return {
-            "name": self.name(),
-            "version": self.scm.sha(),
-            "env-sha": self.scm.env_sha(),
-            "uri": self.uri,
-            "server-entrypoint": server_filepath,
-            "locked": self._is_locked(),
-        }
+        return ObjectInfo(
+            name=self.name(),
+            version=self.scm.sha(),
+            env_sha=self.scm.env_sha(),
+            uri=self.uri,
+            server_entrypoint=server_filepath,
+            locked=self._is_locked(),
+        )
 
     @methods(["GET", "POST"])
     @nolock
-    def health(self) -> Dict[str, Any]:
+    def health(self) -> Dict[str, str]:
         """Health of the resource
 
         Returns:
@@ -1156,6 +1221,7 @@ class Object(Kind):
         raise NotImplementedError()
 
     @classmethod
+    @local
     def find(cls, locator: ObjectLocator) -> List[str]:
         """Find objects
 
@@ -1169,7 +1235,7 @@ class Object(Kind):
 
     @nolock
     @classmethod
-    def labels(cls) -> Dict[str, Any]:
+    def labels(cls) -> Dict[str, str]:
         """Labels for the resource
 
         Args:
@@ -1256,6 +1322,7 @@ class Object(Kind):
                 raise ValueError("lock requires a key to unlock, or force")
         return
 
+    @local
     def logs(self) -> Iterable[str]:
         """Logs for the resource
 
@@ -1264,6 +1331,7 @@ class Object(Kind):
         """
         raise NotImplementedError()
 
+    @local
     def diff(self, uri: str) -> str:
         """Diff of the given object from the URI
 
@@ -1275,6 +1343,7 @@ class Object(Kind):
         """
         raise NotImplementedError()
 
+    @local
     def merge(self: O, uri: str) -> O:
         """Merge with the given resource
 
@@ -1286,6 +1355,7 @@ class Object(Kind):
         """
         raise NotImplementedError()
 
+    @local
     def publish(self) -> str:
         """Publish the repo as an installable package
 
@@ -1294,6 +1364,7 @@ class Object(Kind):
         """
         raise NotImplementedError("Not yet implemented")
 
+    @local
     def sync(self) -> None:
         """Sync changes to a remote process"""
         # TODO: does this make sense?
@@ -1309,6 +1380,7 @@ class Object(Kind):
         # TODO: add remote copy
         return copy.deepcopy(self)
 
+    @local
     def source(self) -> str:
         """Source code for the object
 
@@ -1318,6 +1390,7 @@ class Object(Kind):
         raise NotImplementedError()
 
     @classmethod
+    @local
     def schema(cls) -> str:
         """Schema of the object
 
@@ -1397,6 +1470,7 @@ class Object(Kind):
         return
 
     @classmethod
+    @local
     def load(cls: Type[O], dir: str = "./artifacts") -> O:
         """Load the object
 
@@ -1408,6 +1482,7 @@ class Object(Kind):
             return pickle.load(f)
 
     @classmethod
+    @local
     def clean_artifacts(cls, dir: str = "./artifacts") -> None:
         """Clean any created artifacts
 
@@ -1417,6 +1492,7 @@ class Object(Kind):
         shutil.rmtree(dir)
 
     @classmethod
+    @local
     def opts_schema(cls) -> Dict[str, Any]:
         """Schema for the server options
 
@@ -1480,6 +1556,7 @@ class Object(Kind):
         return cls._client_cls().from_uri(uri)  # type: ignore
 
     @classmethod
+    @local
     def client(
         cls: Type[O],
         clean: bool = True,
@@ -1500,10 +1577,6 @@ class Object(Kind):
         Returns:
             Client: A client which can generate servers on object initialization
         """
-
-        # imgid = cls.store_cls(
-        #     clean=clean, dev_dependencies=dev_dependencies, sync_strategy=convert_hot_to_strategy(hot)
-        # )
 
         if uri is None:
             client_cls = partialcls(
@@ -1639,6 +1712,7 @@ class Object(Kind):
         return str(imgid)
 
     @classmethod
+    @local
     def from_opts(cls: Type[O], opts: Type[Opts]) -> O:
         """Load server from Opts
 
@@ -1732,7 +1806,7 @@ class Object(Kind):
                     if compatible:
                         cli_hash_found = tag.split("-")[-1]
                         if cli_hash_found != cli_hash:
-                            print(f"bypassing {tag} as it is not compatible with client {cli_hash}")
+                            logging.info(f"bypassing {tag} as it is not compatible with client {cli_hash}")
                             continue
                     ret.append(f"{repo_uri}:{tag}")
         return ret
@@ -1848,9 +1922,7 @@ class Object(Kind):
                 val_var = get_var() + "_val"
                 load_lines.append(indent(f"_{key}_dict: {t_hint} = {{}}", idt))
                 load_lines.append(indent(f"for _{key_var}, _{val_var} in _{key}.items():", idt))
-                # print("processing load for : ", key, " arg: ", args[1])
                 proc_load(args[1], val_var, load_lines, idt + "    ", is_nested=True)
-                # print("processed load for arg: ", args[1])
                 load_lines.append(indent(f"    _{key}_dict[_{key_var}] = _{val_var}  # type: ignore", idt))
                 load_lines.append(indent(f"_{key} = _{key}_dict", idt))
                 load_lines.append(indent(f"# end dict: {t_hint}", idt))
@@ -1955,7 +2027,7 @@ class Object(Kind):
                 load_lines.append(indent(f"# code for obj: {t_hint}", idt))
                 # load_lines.append(indent(f"_{key} = _{key}.__dict__  # type: ignore", idt))
                 if hasattr(t, "__annotations__"):
-                    annots = t.__annotations__
+                    annots = get_type_hints(t)
                     h = cls._build_hint(t, import_statements)
 
                     load_lines.append(indent(f"_{key}_obj = object.__new__({h})", idt))
@@ -2012,7 +2084,6 @@ class Object(Kind):
 
             elif is_list(ret):
                 args = get_args(ret)
-                # print("lis args: ", args)
                 if len(args) != 1:
                     raise SystemError(f"List must be typed: {ret}")
 
@@ -2056,13 +2127,10 @@ class Object(Kind):
 
                 import_statements["from modelos.object.encoding import deep_isinstance"] = None
                 for i, arg in enumerate(args):
-                    # print("arg: ", arg)
-                    # print("arg module: ", arg.__module__)
                     if_line = "if"
                     if i > 0:
                         if_line = "elif"
                     arg_hint = cls._proc_arg(arg, import_statements, "")
-                    # print("arg hint: ", arg_hint)
                     ret_lines.append(indent(f"{if_line} deep_isinstance(_{ret_name}, {arg_hint}):", idt))
 
                     len_ret = len(ret_lines)
@@ -2078,7 +2146,7 @@ class Object(Kind):
                         idt,
                     )
                 )
-                ret_lines.append(indent(f"# end union: {t}", idt))
+                ret_lines.append(indent(f"# end union: {ret}", idt))
                 ret_lines.append("")
 
             elif is_enum(ret):
@@ -2099,7 +2167,7 @@ class Object(Kind):
                 ret_lines.append(indent(f"# code for object: {ret}", idt))
                 ret_lines.append(indent(f"_{ret_name} = _{ret_name}.__dict__  # type: ignore", idt))
                 if hasattr(ret, "__annotations__"):
-                    annotations = ret.__annotations__
+                    annotations = get_type_hints(ret)
                     for nm, typ in annotations.items():
                         typ_hint = cls._proc_arg(typ, import_statements, "")
 
@@ -2299,14 +2367,15 @@ class Object(Kind):
 """
         server_fns.append(route_code)
 
-        cls_file_path = Path(inspect.getfile(cls))
-        cls_file = cls_file_path.stem
+        # cls_file_path = Path(inspect.getfile(cls))
+        # cls_file = cls_file_path.stem
 
         cls_arg = cls._proc_arg(cls, import_statements, "")
 
         imports_joined = "\n".join(import_statements.keys())
         server_fns_joined = "".join(server_fns)
         server_file = f"""
+# This file was generated by ModelOS
 from typing import List
 import logging
 import os
@@ -2318,8 +2387,6 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route, WebSocketRoute, BaseRoute
 import uvicorn
 
-# from {cls_file} import *  # noqa
-# from {cls_file} import {cls.__name__}
 {imports_joined}
 
 log_level = os.getenv("LOG_LEVEL")
@@ -2383,10 +2450,6 @@ if __name__ == "__main__":
 
     @classmethod
     def _build_hint(cls, h: Type, imports: Dict[str, Any], module: Optional[str] = None) -> str:
-        # print("----")
-        # print("building hint for type: ", h)
-        # print("module: ", module)
-
         if hasattr(h, "__forward_arg__"):
             if module == "__main__":
                 return h.__forward_arg__
@@ -2407,10 +2470,8 @@ if __name__ == "__main__":
             else:
                 if h.__module__ == "__main__":
                     p = inspect.getfile(cls)
-                    # print("path: ", p)
                     filename = os.path.basename(p)
 
-                    # print("filename: ", filename)
                     mod_name = filename.split(".")[0]
                     # we always assume that if the __module__ is main the resource is in
                     # the same module as the object, and if it weren't it would be a circular import
@@ -2430,13 +2491,10 @@ if __name__ == "__main__":
 
             if mod == "__main__":
                 p = inspect.getfile(cls)
-                # print("path: ", p)
                 if hasattr(cls, "__file__"):
                     pass
-                    # print("__file__: ", cls.__file__)
                 filename = os.path.basename(p)
 
-                # print("filename: ", filename)
                 mod_name = filename.split(".")[0]
                 # we always assume that if the __module__ is main the resource is in
                 # the same module as the object, and if it weren't it would be a circular import
@@ -2567,7 +2625,6 @@ if __name__ == "__main__":
 
             elif is_list(t):
                 args = get_args(t)
-                # print("lis args: ", args)
                 if len(args) != 1:
                     raise SystemError(f"List must be typed: {ret}")
 
@@ -2614,13 +2671,10 @@ if __name__ == "__main__":
 
                 import_statements["from modelos.object.encoding import deep_isinstance"] = None
                 for i, arg in enumerate(args):
-                    # print("arg: ", arg)
-                    # print("arg module: ", arg.__module__)
                     if_line = "if"
                     if i > 0:
                         if_line = "elif"
                     arg_hint = cls._proc_arg(arg, import_statements, "")
-                    # print("arg hint: ", arg_hint)
                     ser_lines.append(indent(f"{if_line} deep_isinstance({name}, {arg_hint}):", idt))
 
                     len_ser = len(ser_lines)
@@ -2657,7 +2711,7 @@ if __name__ == "__main__":
                 ser_lines.append(indent(f"# code for object: {t}", idt))
                 ser_lines.append(indent(f"{name} = {name}.__dict__  # type: ignore", idt))
                 if hasattr(t, "__annotations__"):
-                    annotations = t.__annotations__
+                    annotations = get_type_hints(t)
                     for nm, typ in annotations.items():
                         typ_hint = cls._proc_arg(typ, import_statements, "")
 
@@ -2694,13 +2748,10 @@ if __name__ == "__main__":
                 ret_name (str, optional): Name of the _ret param, this may change when recursing. Defaults to "_ret"
                 ret_union (bool, optional): Whether this is a recursive pass in a nested Union_. Defaults to False.
             """
-            # print("processing return for ret: ", ret)
+
             ret_op = getattr(ret, "from_dict", None)
-            # ret_type = cls._build_hint(orig_ret, import_statements, working_module)
             ret_type = cls._build_hint(ret, import_statements, working_module)
-            # print("ret type: ", ret_type)
             ret_hint = cls._proc_arg(ret, import_statements, "", working_module)
-            # print("ret hint: ", ret_hint)
 
             if is_type(ret):
                 logging.warning("types not yet supported as parameters")
@@ -2714,7 +2765,6 @@ if __name__ == "__main__":
                 ser_lines.append(indent(f"{ret_name} = {jdict_name}", idt))
             elif is_list(ret):
                 args = get_args(ret)
-                # print("args: ", args)
                 if len(args) == 0:
                     raise SystemError(f"List must be typed: {ret}")
                 ser_lines.append(indent(f"# code for arg: {ret}", idt))
@@ -2733,7 +2783,6 @@ if __name__ == "__main__":
                 ser_lines.append("")
             elif is_dict(ret):
                 args = get_args(ret)
-                # print("args: ", args)
                 if len(args) != 2:
                     raise SystemError(f"Dict must be typed: {ret}")
 
@@ -2788,7 +2837,6 @@ if __name__ == "__main__":
 
             elif is_union(ret):
                 args = get_args(ret)
-                # print("args: ", args)
                 if len(args) == 0:
                     raise SystemError("args for iterable are None")
                 ser_lines.append(indent(f"# code for union: {ret}", idt))
@@ -2798,9 +2846,7 @@ if __name__ == "__main__":
                     if i > 0:
                         if_line = "elif"
 
-                    # print("building hint for arg: ", arg)
                     arg_hint = cls._proc_arg(arg, import_statements, "", working_module)
-                    # print("arg hint: ", arg_hint)
                     ser_lines.append(indent(f"{if_line} json_is_type_match({arg_hint}, {jdict_name}):", idt))
                     proc_return(arg, ser_lines, working_module, "    ", jdict_name=jdict_name, ret_union=True)
 
@@ -2818,8 +2864,7 @@ if __name__ == "__main__":
                 ser_lines.append("")
 
             elif hasattr(ret, "__annotations__"):
-                annots = ret.__annotations__
-                # print("creating return object for type: ", ret_type)
+                annots = get_type_hints(ret)
                 ser_lines.append(indent(f"# code for object: {ret}", idt))
                 import_statements["from modelos.object.encoding import json_is_type_match"] = None
                 ser_lines.append(indent(f"if not json_is_type_match({ret_type}, {jdict_name}):", idt))
@@ -2831,7 +2876,6 @@ if __name__ == "__main__":
                     if not is_first_order(typ):
                         proc_return(typ, ser_lines, working_module, idt, jdict_name=nm_var, ret_name=f"_{nm}")
 
-                    # ser_lines.append(indent(f"_{nm} = {nm_var}", idt))
                     ser_lines.append(indent(f"setattr({ret_name}_obj, '{nm}', _{nm})", idt))
                     ser_lines.append("")
 
@@ -2851,7 +2895,6 @@ if __name__ == "__main__":
 
             root_cls = cls._get_class_that_defined_method(fn)
             if not issubclass(root_cls, Object):
-                # logging.info(f"skipping fn '{name}' as it is not of subclass resource")
                 continue
 
             if hasattr(fn, "local"):
@@ -2959,6 +3002,8 @@ if __name__ == "__main__":
             # we need to handle generic types here
             fin_param = cls._proc_arg(orig_ret, import_statements, "", fn.__module__)
             fin_sig += f" -> {fin_param}:"
+            if inspect.ismethod(fn):
+                fin_sig += " # type: ignore"
 
             ret_ser_lines: List[str] = []
 
@@ -2985,7 +3030,6 @@ if __name__ == "__main__":
                 client_fn = f"""
     {fin_sig}
         {doc}
-        print("self class name: ", self.__class__.__name__)
         ClientOpts = OptsBuilder[Opts].build(self.__class__)
         opts = ClientOpts({super_joined})
         super().__init__(opts=opts, **kwargs)
@@ -3049,7 +3093,6 @@ if __name__ == "__main__":
         )
         _resp = request.urlopen(_req)
         _data = _resp.read().decode("utf-8")
-        print("_data: ", _data)
         _jdict = json.loads(_data)
 
         if _jdict is None:
@@ -3057,7 +3100,6 @@ if __name__ == "__main__":
 
         if 'value' in _jdict:
             _jdict = _jdict['value']
-        print("_jdict: ", _jdict)
 
         _ret: {fin_param}
 {ret_ser_lines_joined}
@@ -3071,13 +3113,13 @@ if __name__ == "__main__":
         client_fns_joined = "".join(client_fns)
 
         server_uri = img_id(strategy=RemoteSyncStrategy.IMAGE, tag_prefix=f"{cls.short_name().lower()}-")
-        print("!!! adding server uri to client: ", server_uri)
 
         m = importlib.import_module(cls.__module__)
         if m.__file__ is None:
             raise ValueError("could not find the path of the executing script, if you hit this please create an issue")
         filename = os.path.basename(m.__file__)
         client_file = f"""
+# This file was generated by ModelOS
 from urllib import request, parse
 import json
 import os

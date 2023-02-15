@@ -185,8 +185,8 @@ def test_simple_create():
 
     info = foo.info()
     print("foo info: ", info)
-    assert info["name"] == "Foo"
-    assert info["env-sha"] == scm.env_sha()
+    assert info.name == "Foo"
+    assert info.env_sha == scm.env_sha()
 
     print("foo labels: ", foo.labels())
     print("foo health: ", foo.health())
@@ -270,9 +270,9 @@ def test_basic_ops():
 def test_stream():
     BarClient = Bar.client(dev_dependencies=True, clean=False)
 
-    with BarClient("zoop", 6) as bar:
-        for i, s in enumerate(bar.stream("test", 10)):
-            assert s == f"{i}: test"
+    bar = BarClient("zoop", 6)
+    for i, s in enumerate(bar.stream("test", 10)):
+        assert s == f"{i}: test"
 
 
 def test_save():
@@ -302,12 +302,12 @@ def test_lock():
     info = bar.info()
     print("bar info: ", info)
 
-    assert info["locked"] is False
+    assert info.locked is False
     print("locking bar")
     bar.lock()
     info = bar.info()
     print("new bar info: ", info)
-    assert info["locked"] is True
+    assert info.locked is True
     assert bar.set("eggs", 3) is None
 
     print("Trying to connect to locked process: ", proc_uri)
@@ -316,7 +316,7 @@ def test_lock():
     assert bar2.health() == {"health": "ok"}
     info = bar2.info()
     print("bar2 info: ", info)
-    assert info["locked"] is True
+    assert info.locked is True
 
     try:
         bar.set("spam", 11)
@@ -354,8 +354,8 @@ def test_main_obj():
 
     info = baz.info()
     print("baz info: ", info)
-    assert info["name"] == "Baz"
-    assert info["env-sha"] == scm.env_sha()
+    assert info.name == "Baz"
+    assert info.env_sha == scm.env_sha()
 
     assert baz.ret("echoing back!", Spam("this", 2)) == "echoing back!"
 
@@ -751,7 +751,7 @@ def test_enum():
 def test_client():
     # how do we create from just the client? how do we store and install?
 
-    from bar_client import BarClient
+    from bar_client import BarClient  # noqa
 
     bar1 = BarClient("a", 1)
     print("echo: ", bar1.echo("world"))
@@ -859,11 +859,11 @@ if __name__ == "__main__":
     # print("\n=====\ntesting basic ops\n")
     # test_basic_ops()
 
-    # print("\n=====\ntesting stream\n")
-    # test_stream()
+    print("\n=====\ntesting stream\n")
+    test_stream()
 
-    # print("\n=====\ntesting save\n")
-    # test_save()
+    print("\n=====\ntesting save\n")
+    test_save()
 
     # print("\n=====\ntesting lock\n")
     # test_lock()
@@ -886,5 +886,5 @@ if __name__ == "__main__":
     # print("\n=====\ntesting enums\n")
     # test_enum()
 
-    print("\n=====\ntesting client\n")
-    test_client()
+    # print("\n=====\ntesting client\n")
+    # test_client()

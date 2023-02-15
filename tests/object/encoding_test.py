@@ -1,4 +1,4 @@
-from typing import Dict, List, Union, Tuple
+from typing import Dict, List, Union, Tuple, Optional
 from types import NoneType
 from dataclasses import dataclass
 from enum import Enum
@@ -38,6 +38,7 @@ class Data:
     e: int
     c: Ham
     b: Spam
+    ext: Optional[Dict[str, str]] = None
 
 
 def test_int():
@@ -170,6 +171,7 @@ def test_dataclass():
     )
 
     enc = encode_any(val, Data)
+    assert json_is_type_match(Data, enc) is True
     dec = decode_any(enc, Data)
     assert len(DeepDiff(val, dec, ignore_order=True)) == 0
 

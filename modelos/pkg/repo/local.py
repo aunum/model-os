@@ -15,7 +15,7 @@ from modelos.local import pkg_home
 from modelos.config import Config
 from modelos.pkg.util import copy_any
 
-".mdl/pkg/<host.repo>/<scheme>/<name>/<version>/.pkg/info.yaml"
+# In the form .mdl/pkg/<host.repo>/<scheme>/<name>/<version>/.pkg/info.yaml
 
 
 class LocalPkgRepo:

@@ -77,8 +77,8 @@ class RemotePkgRepo(ABC):
         """
         pass
 
-    @abstractmethod
     @classmethod
+    @abstractmethod
     def build_uri(cls, id: PkgID) -> str:
         """Generate a URI for the pkg id
 
