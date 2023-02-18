@@ -7,7 +7,7 @@ from collections.abc import Iterable, Iterator
 FIRST_ORDER_PRIMITIVES = [int, str, float, bool, bytes]
 
 
-def json_is_type_match(t: Type, jdict: Any) -> bool:
+def json_is_type_match(t: Optional[Union[Type, Any]], jdict: Any) -> bool:
     """Checks if the given type matchs the JSON dictionary
 
     Args:
@@ -99,7 +99,7 @@ def json_is_type_match(t: Type, jdict: Any) -> bool:
         raise ValueError(f"type not supported: {t}")
 
 
-def deep_isinstance(obj: Any, t: Optional[Type]) -> bool:
+def deep_isinstance(obj: Any, t: Optional[Union[Type, Any]]) -> bool:
     """A variation of isinstance that works with type variables
 
     Args:
@@ -110,6 +110,7 @@ def deep_isinstance(obj: Any, t: Optional[Type]) -> bool:
         bool: Whether it is an instance
     """
 
+    print(f"checking {obj} against type {t}")
     if t is None or t is NoneType:
         return obj is None
 
@@ -150,6 +151,7 @@ def deep_isinstance(obj: Any, t: Optional[Type]) -> bool:
         return isinstance(obj, t)
 
     elif hasattr(t, "__annotations__"):
+        print("has annotations")
         return isinstance(obj, t)
 
     else:

@@ -5,7 +5,7 @@ from enum import Enum
 
 from modelos import Object
 from modelos.scm import SCM
-from nested.bar import Baz, Spam
+from .nested.bar import Baz, Spam
 
 logging.basicConfig(level=logging.INFO)
 
@@ -177,7 +177,7 @@ class Bar(Object):
 def test_simple_create():
     scm = SCM()
 
-    FooClient = Foo.client(hot=True, dev_dependencies=True)
+    FooClient = Foo.client(clean=False, hot=True, dev_dependencies=True)
 
     # Create a remote instance
     print("creating foo")
@@ -741,6 +741,7 @@ def test_enum():
     assert enum1.get_s() == EnumStrings.ORANGE
 
     uri = enum1.store(dev_dependencies=True)
+    enum1.delete()
 
     enum_restored = Enumerated.from_uri(uri)
     assert enum_restored.get_n() == EnumNums.RED
@@ -753,7 +754,7 @@ def test_enum():
 def test_client():
     # how do we create from just the client? how do we store and install?
 
-    from bar_client import BarClient  # noqa
+    from .bar_client import BarClient  # noqa
 
     bar1 = BarClient("a", 1)
     print("echo: ", bar1.echo("world"))
@@ -855,11 +856,13 @@ def test_ui():
 
 
 if __name__ == "__main__":
+    # from .foo_client import FooClient
+
     # print("\n=====\ntesting simple create\n")
     # test_simple_create()
 
-    print("\n=====\ntesting basic ops\n")
-    test_basic_ops()
+    # print("\n=====\ntesting basic ops\n")
+    # test_basic_ops()
 
     # print("\n=====\ntesting stream\n")
     # test_stream()
@@ -888,5 +891,5 @@ if __name__ == "__main__":
     # print("\n=====\ntesting enums\n")
     # test_enum()
 
-    # print("\n=====\ntesting client\n")
-    # test_client()
+    print("\n=====\ntesting client\n")
+    test_client()

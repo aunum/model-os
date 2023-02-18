@@ -5,13 +5,14 @@ import os
 import typing
 from typing import List
 
-import nested.bar
 import uvicorn
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import BaseRoute, Route
 
 from modelos.object.encoding import deep_isinstance
+
+from .bar import Baz, Spam
 
 log_level = os.getenv("LOG_LEVEL")
 if log_level is None:
@@ -20,7 +21,7 @@ else:
     logging.basicConfig(level=log_level)
 
 
-class BazServer(nested.bar.Baz):
+class BazServer(Baz):
     """A resource server for Baz"""
 
     async def _health_req(self, request):
@@ -142,7 +143,7 @@ class BazServer(nested.bar.Baz):
 
     async def _ret_req(self, request):
         """Request for function:
-        ret(self, a: str, b: nested.bar.Spam) -> str
+        ret(self, a: str, b: tests.object.base.nested.bar.Spam) -> str
         """
 
         body = await request.body()
@@ -159,8 +160,8 @@ class BazServer(nested.bar.Baz):
 
         _b = _jdict["b"]
 
-        # code for obj: nested.bar.Spam
-        _b_obj = object.__new__(nested.bar.Spam)
+        # code for obj: Spam
+        _b_obj = object.__new__(Spam)
         _a_attr = _b["a"]
         setattr(_b_obj, "a", _a_attr)
 
@@ -168,7 +169,7 @@ class BazServer(nested.bar.Baz):
         setattr(_b_obj, "b", _b_attr)
 
         _b = _b_obj  # type: ignore
-        # end obj: nested.bar.Spam
+        # end obj: Spam
 
         _jdict["b"] = _b
 

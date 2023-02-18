@@ -104,7 +104,7 @@ HamClient.version = "v1.2"
 with HamClient(weight=10) as ham:
     ham.bake(temp=320)
 
-# Specify an object version
+# Specify an instance version
 with HamClient.instance("v1.2.3") as ham:
     ham.bake(temp=320)
 ```
@@ -126,7 +126,7 @@ with Ham.client()(weight=10) as ham:
     ham.bake(temp=320)
 ```
 
-Install an object and use it locally
+Install an instance and use it locally
 ```python
 from modelos import install
 
@@ -134,8 +134,26 @@ install("acme.org/ml-project:obj.ham.v1.2.3")
 
 from ml_project.ham.v1_2_3 import Ham
 
-# load the object state
+# load the object instance state
 ham = Ham.from_env()
 
 ham.bake(temp=400)
 ```
+
+An example working project can be found at https://github.com/pbarker/kvd
+
+## Roadmap
+
+- [ ] Class methods
+- [ ] Properties
+- [ ] Packages
+- [ ] Environments
+- [ ] Runtimes
+- [ ] Extension objects
+- [ ] Releasing
+- [ ] Finding / indexing
+- [ ] Docs / landing
+- [ ] UI / CLI
+- [ ] Schema
+- [ ] Bi-directional streaming
+- [ ] Smarter versioning

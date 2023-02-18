@@ -6,13 +6,14 @@ import typing
 from typing import List
 from urllib import parse
 
-import base_test
 import uvicorn
 from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import BaseRoute, Route, WebSocketRoute
 
 from modelos.object.encoding import deep_isinstance, json_is_type_match
+
+from .base_test import Bar, Eggs, Ham
 
 log_level = os.getenv("LOG_LEVEL")
 if log_level is None:
@@ -21,7 +22,7 @@ else:
     logging.basicConfig(level=log_level)
 
 
-class BarServer(base_test.Bar):
+class BarServer(Bar):
     """A resource server for Bar"""
 
     async def _add_req(self, request):
@@ -67,16 +68,16 @@ class BarServer(base_test.Bar):
         self._check_lock(headers)
 
         _ham_by_name = _jdict["ham_by_name"]
-        # code for dict: typing.Dict[str, base_test.Ham]
-        if not json_is_type_match(typing.Dict[str, base_test.Ham], _ham_by_name):
+        # code for dict: typing.Dict[str, Ham]
+        if not json_is_type_match(typing.Dict[str, Ham], _ham_by_name):
             raise ValueError(
                 "JSON from 'ham_by_name' returned does not match type: typing.Dict[str, __main__.Ham]"
             )
 
-        _ham_by_name_dict: typing.Dict[str, base_test.Ham] = {}
+        _ham_by_name_dict: typing.Dict[str, Ham] = {}
         for _a_key, _b_val in _ham_by_name.items():
-            # code for obj: base_test.Ham
-            _b_val_obj = object.__new__(base_test.Ham)
+            # code for obj: Ham
+            _b_val_obj = object.__new__(Ham)
             _a_attr = _b_val["a"]
             setattr(_b_val_obj, "a", _a_attr)
 
@@ -84,11 +85,11 @@ class BarServer(base_test.Bar):
             setattr(_b_val_obj, "b", _b_attr)
 
             _b_val = _b_val_obj  # type: ignore
-            # end obj: base_test.Ham
+            # end obj: Ham
 
             _ham_by_name_dict[_a_key] = _b_val  # type: ignore
         _ham_by_name = _ham_by_name_dict
-        # end dict: typing.Dict[str, base_test.Ham]
+        # end dict: typing.Dict[str, Ham]
 
         _jdict["ham_by_name"] = _ham_by_name
 
@@ -127,20 +128,20 @@ class BarServer(base_test.Bar):
         self._check_lock(headers)
 
         _egg_by_name = _jdict["egg_by_name"]
-        # code for dict: typing.Dict[str, base_test.Eggs]
-        if not json_is_type_match(typing.Dict[str, base_test.Eggs], _egg_by_name):
+        # code for dict: typing.Dict[str, Eggs]
+        if not json_is_type_match(typing.Dict[str, Eggs], _egg_by_name):
             raise ValueError(
                 "JSON from 'egg_by_name' returned does not match type: typing.Dict[str, __main__.Eggs]"
             )
 
-        _egg_by_name_dict: typing.Dict[str, base_test.Eggs] = {}
+        _egg_by_name_dict: typing.Dict[str, Eggs] = {}
         for _a_key, _b_val in _egg_by_name.items():
-            # code for obj: base_test.Eggs
-            _b_val_obj = object.__new__(base_test.Eggs)
+            # code for obj: Eggs
+            _b_val_obj = object.__new__(Eggs)
             _h_attr = _b_val["h"]
 
-            # code for obj: base_test.Ham
-            _h_attr_obj = object.__new__(base_test.Ham)
+            # code for obj: Ham
+            _h_attr_obj = object.__new__(Ham)
             _a_attr = _h_attr["a"]
             setattr(_h_attr_obj, "a", _a_attr)
 
@@ -148,21 +149,21 @@ class BarServer(base_test.Bar):
             setattr(_h_attr_obj, "b", _b_attr)
 
             _h_attr = _h_attr_obj  # type: ignore
-            # end obj: base_test.Ham
+            # end obj: Ham
 
             setattr(_b_val_obj, "h", _h_attr)
 
             _b_attr = _b_val["b"]
-            # code for dict: typing.Dict[str, base_test.Ham]
-            if not json_is_type_match(typing.Dict[str, base_test.Ham], _b_attr):
+            # code for dict: typing.Dict[str, Ham]
+            if not json_is_type_match(typing.Dict[str, Ham], _b_attr):
                 raise ValueError(
                     "JSON from 'b_attr' returned does not match type: typing.Dict[str, __main__.Ham]"
                 )
 
-            _b_attr_dict: typing.Dict[str, base_test.Ham] = {}
+            _b_attr_dict: typing.Dict[str, Ham] = {}
             for _c_key, _d_val in _b_attr.items():
-                # code for obj: base_test.Ham
-                _d_val_obj = object.__new__(base_test.Ham)
+                # code for obj: Ham
+                _d_val_obj = object.__new__(Ham)
                 _a_attr = _d_val["a"]
                 setattr(_d_val_obj, "a", _a_attr)
 
@@ -170,20 +171,20 @@ class BarServer(base_test.Bar):
                 setattr(_d_val_obj, "b", _b_attr)
 
                 _d_val = _d_val_obj  # type: ignore
-                # end obj: base_test.Ham
+                # end obj: Ham
 
                 _b_attr_dict[_c_key] = _d_val  # type: ignore
             _b_attr = _b_attr_dict
-            # end dict: typing.Dict[str, base_test.Ham]
+            # end dict: typing.Dict[str, Ham]
 
             setattr(_b_val_obj, "b", _b_attr)
 
             _b_val = _b_val_obj  # type: ignore
-            # end obj: base_test.Eggs
+            # end obj: Eggs
 
             _egg_by_name_dict[_a_key] = _b_val  # type: ignore
         _egg_by_name = _egg_by_name_dict
-        # end dict: typing.Dict[str, base_test.Eggs]
+        # end dict: typing.Dict[str, Eggs]
 
         _jdict["egg_by_name"] = _egg_by_name
 
@@ -195,13 +196,13 @@ class BarServer(base_test.Bar):
         for _e_key, _f_val in _ret.items():  # type: ignore
             # code for object: <class '__main__.Eggs'>
             _f_val = _f_val.__dict__  # type: ignore
-            _h: base_test.Ham = _f_val["h"]
+            _h: Ham = _f_val["h"]
             # code for object: <class '__main__.Ham'>
             _h = _h.__dict__  # type: ignore
             # end object: <class '__main__.Ham'>
 
             _f_val["h"] = _h
-            _b: typing.Dict[str, base_test.Ham] = _f_val["b"]
+            _b: typing.Dict[str, Ham] = _f_val["b"]
             # code for dict arg: typing.Dict[str, __main__.Ham]
             _b_dict = {}
             for _g_key, _h_val in _b.items():  # type: ignore
@@ -267,8 +268,8 @@ class BarServer(base_test.Bar):
 
         _ham = _jdict["ham"]
 
-        # code for obj: base_test.Ham
-        _ham_obj = object.__new__(base_test.Ham)
+        # code for obj: Ham
+        _ham_obj = object.__new__(Ham)
         _a_attr = _ham["a"]
         setattr(_ham_obj, "a", _a_attr)
 
@@ -276,7 +277,7 @@ class BarServer(base_test.Bar):
         setattr(_ham_obj, "b", _b_attr)
 
         _ham = _ham_obj  # type: ignore
-        # end obj: base_test.Ham
+        # end obj: Ham
 
         _jdict["ham"] = _ham
 
@@ -308,16 +309,16 @@ class BarServer(base_test.Bar):
         self._check_lock(headers)
 
         _hams = _jdict["hams"]
-        # code for list: typing.List[base_test.Ham]
-        if not json_is_type_match(typing.List[base_test.Ham], _hams):
+        # code for list: typing.List[Ham]
+        if not json_is_type_match(typing.List[Ham], _hams):
             raise ValueError(
                 "JSON from 'hams' returned does not match type: typing.List[__main__.Ham]"
             )
 
-        _hams_list: typing.List[base_test.Ham] = []
+        _hams_list: typing.List[Ham] = []
         for _a_val in _hams:
-            # code for obj: base_test.Ham
-            _a_val_obj = object.__new__(base_test.Ham)
+            # code for obj: Ham
+            _a_val_obj = object.__new__(Ham)
             _a_attr = _a_val["a"]
             setattr(_a_val_obj, "a", _a_attr)
 
@@ -325,11 +326,11 @@ class BarServer(base_test.Bar):
             setattr(_a_val_obj, "b", _b_attr)
 
             _a_val = _a_val_obj  # type: ignore
-            # end obj: base_test.Ham
+            # end obj: Ham
 
             _hams_list.append(_a_val)  # type: ignore
         _hams = _hams_list
-        # end list: typing.List[base_test.Ham]
+        # end list: typing.List[Ham]
 
         _jdict["hams"] = _hams
 
@@ -370,8 +371,8 @@ class BarServer(base_test.Bar):
         self._check_lock(headers)
 
         _hammy = _jdict["hammy"]
-        # code for tuple: typing.Tuple[str, base_test.Ham]
-        _hammy_tuple: typing.Tuple[str, base_test.Ham] = ()  # type: ignore
+        # code for tuple: typing.Tuple[str, Ham]
+        _hammy_tuple: typing.Tuple[str, Ham] = ()  # type: ignore
 
         # code for tuple arg: <class 'str'>
         _hammy_0 = _hammy[0]
@@ -381,8 +382,8 @@ class BarServer(base_test.Bar):
         # code for tuple arg: <class '__main__.Ham'>
         _hammy_1 = _hammy[1]
 
-        # code for obj: base_test.Ham
-        _hammy_1_obj = object.__new__(base_test.Ham)
+        # code for obj: Ham
+        _hammy_1_obj = object.__new__(Ham)
         _a_attr = _hammy_1["a"]
         setattr(_hammy_1_obj, "a", _a_attr)
 
@@ -390,13 +391,13 @@ class BarServer(base_test.Bar):
         setattr(_hammy_1_obj, "b", _b_attr)
 
         _hammy_1 = _hammy_1_obj  # type: ignore
-        # end obj: base_test.Ham
+        # end obj: Ham
 
         _hammy_tuple = _hammy_tuple + (_hammy_1,)  # type: ignore
         # end tuple arg: <class '__main__.Ham'>
 
         _hammy = _hammy_tuple  # type: ignore
-        # end tuple: typing.Tuple[str, base_test.Ham]
+        # end tuple: typing.Tuple[str, Ham]
 
         _jdict["hammy"] = _hammy
 

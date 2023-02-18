@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "modelos"
-version = "0.1.2"
+version = "0.1.3"
 description = "An operating system for machine learning"
 authors = ["Patrick Barker <patrickbarkerco@gmail.com>"]
 license = "Apache 2.0"

@@ -15,13 +15,13 @@ from modelos.object.encoding import deep_isinstance, json_is_type_match
 if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(
     Path("base_test.py")
 ):
-    import __main__ as resource_test  # type: ignore # noqa
+    import __main__ as base_test  # type: ignore # noqa
 
 
 class FooClient(Client):
     """A resource client for Foo"""
 
-    uri: str = "aunum/mdl-test:foo-01cc4d0-3050440"
+    uri: str = "aunum/mdl-test:foo-3967177-86b17ed"
 
     def health(self) -> typing.Dict[str, str]:
         """Health of the resource

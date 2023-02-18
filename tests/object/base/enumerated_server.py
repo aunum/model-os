@@ -12,7 +12,7 @@ from starlette.routing import BaseRoute, Route
 
 from modelos.object.encoding import deep_isinstance
 
-from .base_test import Foo
+from .base_test import Enumerated, EnumNums, EnumStrings
 
 log_level = os.getenv("LOG_LEVEL")
 if log_level is None:
@@ -21,8 +21,95 @@ else:
     logging.basicConfig(level=log_level)
 
 
-class FooServer(Foo):
-    """A resource server for Foo"""
+class EnumeratedServer(Enumerated):
+    """A resource server for Enumerated"""
+
+    async def _get_dn_req(self, request):
+        """Request for function:
+        get_dn(self, name: str) -> __main__.EnumNums
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_dn(**_jdict)
+        print("called function: ", _ret)
+        # code for enum: <enum 'EnumNums'>
+        _ret = _ret.value  # type: ignore
+        # end enum: <enum 'EnumNums'>
+
+        _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_n_req(self, request):
+        """Request for function:
+        get_n(self) -> __main__.EnumNums
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_n(**_jdict)
+        print("called function: ", _ret)
+        # code for enum: <enum 'EnumNums'>
+        _ret = _ret.value  # type: ignore
+        # end enum: <enum 'EnumNums'>
+
+        _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_s_req(self, request):
+        """Request for function:
+        get_s(self) -> __main__.EnumStrings
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_s(**_jdict)
+        print("called function: ", _ret)
+        # code for enum: <enum 'EnumStrings'>
+        _ret = _ret.value  # type: ignore
+        # end enum: <enum 'EnumStrings'>
+
+        _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
 
     async def _health_req(self, request):
         """Request for function:
@@ -166,9 +253,9 @@ class FooServer(Foo):
         print("returning: ", _ret)
         return JSONResponse(_ret)
 
-    async def _test_req(self, request):
+    async def _set_n_req(self, request):
         """Request for function:
-        test(self) -> None
+        set_n(self, n: __main__.EnumNums) -> None
         """
 
         body = await request.body()
@@ -183,8 +270,41 @@ class FooServer(Foo):
         logging.debug(f"headers: {headers}")
         self._check_lock(headers)
 
+        _n = _jdict["n"]
+        _n = EnumNums(_n)
+        _jdict["n"] = _n
+
         print("calling function: ", _jdict)
-        _ret = self.test(**_jdict)
+        _ret = self.set_n(**_jdict)
+        print("called function: ", _ret)
+        _ret = {"value": None}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _set_s_req(self, request):
+        """Request for function:
+        set_s(self, s: __main__.EnumStrings) -> None
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        _s = _jdict["s"]
+        _s = EnumStrings(_s)
+        _jdict["s"] = _s
+
+        print("calling function: ", _jdict)
+        _ret = self.set_s(**_jdict)
         print("called function: ", _ret)
         _ret = {"value": None}
 
@@ -306,11 +426,15 @@ class FooServer(Foo):
 
     def _routes(self) -> List[BaseRoute]:
         return [
+            Route("/get_dn", endpoint=self._get_dn_req, methods=["POST"]),
+            Route("/get_n", endpoint=self._get_n_req, methods=["POST"]),
+            Route("/get_s", endpoint=self._get_s_req, methods=["POST"]),
             Route("/health", endpoint=self._health_req, methods=["GET", "POST"]),
             Route("/info", endpoint=self._info_req, methods=["POST"]),
             Route("/lock", endpoint=self._lock_req, methods=["POST"]),
             Route("/save", endpoint=self._save_req, methods=["POST"]),
-            Route("/test", endpoint=self._test_req, methods=["POST"]),
+            Route("/set_n", endpoint=self._set_n_req, methods=["POST"]),
+            Route("/set_s", endpoint=self._set_s_req, methods=["POST"]),
             Route("/unlock", endpoint=self._unlock_req, methods=["POST"]),
             Route("/labels", endpoint=self._labels_req, methods=["POST"]),
             Route("/name", endpoint=self._name_req, methods=["POST"]),
@@ -318,7 +442,7 @@ class FooServer(Foo):
         ]
 
 
-o = FooServer.from_env()
+o = EnumeratedServer.from_env()
 pkgs = o._reload_dirs()
 
 app = Starlette(routes=o._routes())

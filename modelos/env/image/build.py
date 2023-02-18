@@ -1,7 +1,6 @@
 from typing import Optional, Dict, Any, List
 import os
 import logging
-import yaml
 import sys
 import subprocess
 import hashlib
@@ -14,7 +13,7 @@ from modelos.virtual.container.id import ImageID
 from modelos.config import Config, RemoteSyncStrategy
 from modelos.virtual.container.client import default_socket
 from modelos.scm import SCM
-from modelos.util.rootpath import load_conda_yaml
+from modelos.util.rootpath import load_conda_yaml, detect
 
 TOMLDict = Dict[str, Any]
 
@@ -476,7 +475,7 @@ def build_pip_containerfile(
 
 
 def build_img(
-    c: Dockerfile,
+    dockerfile: Dockerfile,
     sync_strategy: RemoteSyncStrategy,
     image_repo: Optional[str] = None,
     tag: Optional[str] = None,
@@ -489,7 +488,7 @@ def build_img(
     """Build image from Containerfile
 
     Args:
-        c (Dockerfile): Dockerfile to use
+        dockerfile (Dockerfile): Dockerfile to use
         image_repo (str, optional): repository name. Defaults to None.
         tag (str, optional): tag for image. Defaults to None.
         docker_socket (str, optional): docker socket to use. Defaults to None.
@@ -502,7 +501,7 @@ def build_img(
         ImageID: An ImageID
     """
 
-    containerfile_path = write_dockerfile(c)
+    dockerfile_path = write_dockerfile(dockerfile)
 
     if docker_socket is None:
         docker_socket = default_socket()
@@ -521,7 +520,7 @@ def build_img(
     progress: Optional[Progress] = Progress(transient=True)
     progress.start()  # type: ignore
     for line in cli.build(
-        path=os.path.dirname(containerfile_path),
+        path=os.path.dirname(dockerfile_path),
         rm=True,
         tag=image_id.ref(),
         dockerfile=MDL_DOCKERFILE_NAME,
@@ -541,8 +540,10 @@ def build_img(
                 progress.start()
             if not progress.live.is_started:
                 progress.start()
+
             if "status" not in line:
                 continue
+
             if line["status"] == "Extracting":
                 push_id: str = line["id"]
                 details = line["progressDetail"]
@@ -553,7 +554,7 @@ def build_img(
                     ext_tasks[push_id] = task_id
                 task = ext_tasks[push_id]
                 progress.update(task, completed=details["current"])
-            if line["status"] == "Downloading":
+            elif line["status"] == "Downloading":
                 push_id = line["id"]
                 details = line["progressDetail"]
                 if push_id not in dl_tasks:
@@ -564,7 +565,7 @@ def build_img(
                 task = dl_tasks[push_id]
                 progress.update(task, completed=details["current"])
             else:
-                print(line)
+                continue
 
     # if clean:
     # delete_containerfile()
@@ -685,12 +686,14 @@ def img_command(container_path: str, scm: Optional[SCM] = None) -> List[str]:
     if scm is None:
         scm = SCM()
 
-    command = ["python", container_path]
+    mod_path = path_to_module(container_path, REPO_ROOT)
+
+    command = ["python", "-m", mod_path]
     if scm.is_poetry_project():
-        command = ["poetry", "run", "python", str(container_path)]
+        command = ["poetry", "run", "python", "-m", mod_path]
 
     elif scm.is_pip_project():
-        command = ["python", str(container_path)]
+        command = ["python", "-m", mod_path]
 
     elif scm.is_conda_project():
         conda_yaml = load_conda_yaml()
@@ -698,12 +701,31 @@ def img_command(container_path: str, scm: Optional[SCM] = None) -> List[str]:
             raise ValueError("cannot find 'name' in environment.yml")
 
         env_name = conda_yaml["name"]
-        command = ["conda", "run", "--no-capture-output", "-n", env_name, "python", str(container_path)]
+        command = ["conda", "run", "--no-capture-output", "-n", env_name, "python", "-m", mod_path]
 
     else:
         raise ValueError("project type unknown")
 
     return command
+
+
+def path_to_module(path: str, project_root: Optional[str] = None) -> str:
+    """Convert a path to a module
+
+    Args:
+        path (str): Path to convert
+        project_root (Optional[str], optional): Project root. Defaults to autodetect
+
+    Returns:
+        str: Module path
+    """
+    if project_root is None:
+        project_root = detect()
+    mod_path = ".".join(path.split(".")[:-1])
+    mod_path = os.path.normpath(os.path.relpath(mod_path, project_root))
+    mod_path = mod_path.replace("/", ".")
+
+    return mod_path
 
 
 def cache_img() -> None:

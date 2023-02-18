@@ -4,26 +4,111 @@ import os
 import typing
 from pathlib import Path
 from typing import Type
-from urllib import request
+from urllib import parse, request
 
 from lib_programname import get_path_executed_script
 
 import modelos.object.kind
 from modelos import Client
 from modelos.object.encoding import deep_isinstance, json_is_type_match
+from modelos.object.opts import Opts, OptsBuilder
 
-from .bar import Spam
+from .base_test import EnumNums, EnumStrings
 
 if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(
-    Path("bar.py")
+    Path("base_test.py")
 ):
-    import __main__ as bar  # type: ignore # noqa
+    from __main__ import EnumNums
+
+from __main__ import EnumStrings
 
 
-class BazClient(Client):
-    """A resource client for Baz"""
+class EnumeratedClient(Client):
+    """A resource client for Enumerated"""
 
-    uri: str = "aunum/mdl-test:baz-3967177-1c81e12"
+    uri: str = "aunum/mdl-test:enumerated-3967177-9ae7d25"
+
+    def __init__(
+        self, n: EnumNums, s: EnumStrings, dn: typing.Dict[str, EnumNums], **kwargs
+    ) -> None:
+        ClientOpts = OptsBuilder[Opts].build(self.__class__)
+        opts = ClientOpts(n=n, s=s, dn=dn)
+        super().__init__(opts=opts, **kwargs)
+
+    def get_dn(self, name: str) -> EnumNums:
+        _params = json.dumps({"name": name}).encode("utf8")
+        _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
+        _req = request.Request(
+            f"{self.server_addr}/get_dn",
+            data=_params,
+            headers=_headers,
+        )
+        _resp = request.urlopen(_req)
+        _data = _resp.read().decode("utf-8")
+        _jdict = json.loads(_data)
+
+        if _jdict is None:
+            raise ValueError("recieved invalid response from server, check server logs")
+
+        if "value" in _jdict:
+            _jdict = _jdict["value"]
+
+        _ret: EnumNums
+        # code for enum: <enum 'EnumNums'>
+        _ret = EnumNums(_jdict)
+        # end enum: <enum 'EnumNums'>
+
+        return _ret
+
+    def get_n(self) -> EnumNums:
+        _params = json.dumps({}).encode("utf8")
+        _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
+        _req = request.Request(
+            f"{self.server_addr}/get_n",
+            data=_params,
+            headers=_headers,
+        )
+        _resp = request.urlopen(_req)
+        _data = _resp.read().decode("utf-8")
+        _jdict = json.loads(_data)
+
+        if _jdict is None:
+            raise ValueError("recieved invalid response from server, check server logs")
+
+        if "value" in _jdict:
+            _jdict = _jdict["value"]
+
+        _ret: EnumNums
+        # code for enum: <enum 'EnumNums'>
+        _ret = EnumNums(_jdict)
+        # end enum: <enum 'EnumNums'>
+
+        return _ret
+
+    def get_s(self) -> EnumStrings:
+        _params = json.dumps({}).encode("utf8")
+        _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
+        _req = request.Request(
+            f"{self.server_addr}/get_s",
+            data=_params,
+            headers=_headers,
+        )
+        _resp = request.urlopen(_req)
+        _data = _resp.read().decode("utf-8")
+        _jdict = json.loads(_data)
+
+        if _jdict is None:
+            raise ValueError("recieved invalid response from server, check server logs")
+
+        if "value" in _jdict:
+            _jdict = _jdict["value"]
+
+        _ret: EnumStrings
+        # code for enum: <enum 'EnumStrings'>
+        _ret = EnumStrings(_jdict)
+        # end enum: <enum 'EnumStrings'>
+
+        return _ret
 
     def health(self) -> typing.Dict[str, str]:
         """Health of the resource
@@ -184,16 +269,17 @@ class BazClient(Client):
 
         return _ret
 
-    def ret(self, a: str, b: Spam) -> str:
-        """A test function"""
-        # code for object: <class 'tests.object.base.nested.bar.Spam'>
-        b = b.__dict__  # type: ignore
-        # end object: <class 'tests.object.base.nested.bar.Spam'>
+    def save(self, out_dir: str = "./artifacts") -> None:
+        """Save the object
 
-        _params = json.dumps({"a": a, "b": b}).encode("utf8")
+        Args:
+            out_dir (str, optional): Directory to output the artiacts. Defaults to "./artifacts".
+        """
+
+        _params = json.dumps({"out_dir": out_dir}).encode("utf8")
         _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
         _req = request.Request(
-            f"{self.server_addr}/ret",
+            f"{self.server_addr}/save",
             data=_params,
             headers=_headers,
         )
@@ -207,22 +293,47 @@ class BazClient(Client):
         if "value" in _jdict:
             _jdict = _jdict["value"]
 
-        _ret: str
+        _ret: None
         _ret = _jdict
 
         return _ret
 
-    def save(self, out_dir: str = "./artifacts") -> None:
-        """Save the object
+    def set_n(self, n: EnumNums) -> None:
+        # code for enum: <enum 'EnumNums'>
+        n = n.value  # type: ignore
+        # end enum: <enum 'EnumNums'>
 
-        Args:
-            out_dir (str, optional): Directory to output the artiacts. Defaults to "./artifacts".
-        """
-
-        _params = json.dumps({"out_dir": out_dir}).encode("utf8")
+        _params = json.dumps({"n": n}).encode("utf8")
         _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
         _req = request.Request(
-            f"{self.server_addr}/save",
+            f"{self.server_addr}/set_n",
+            data=_params,
+            headers=_headers,
+        )
+        _resp = request.urlopen(_req)
+        _data = _resp.read().decode("utf-8")
+        _jdict = json.loads(_data)
+
+        if _jdict is None:
+            raise ValueError("recieved invalid response from server, check server logs")
+
+        if "value" in _jdict:
+            _jdict = _jdict["value"]
+
+        _ret: None
+        _ret = _jdict
+
+        return _ret
+
+    def set_s(self, s: EnumStrings) -> None:
+        # code for enum: <enum 'EnumStrings'>
+        s = s.value  # type: ignore
+        # end enum: <enum 'EnumStrings'>
+
+        _params = json.dumps({"s": s}).encode("utf8")
+        _headers = {"content-type": "application/json", "client-uuid": str(self.uid)}
+        _req = request.Request(
+            f"{self.server_addr}/set_s",
             data=_params,
             headers=_headers,
         )
@@ -381,7 +492,7 @@ class BazClient(Client):
         super().__init__(uri)
 
     @classmethod
-    def from_uri(cls: Type["BazClient"], uri: str) -> "BazClient":
+    def from_uri(cls: Type["EnumeratedClient"], uri: str) -> "EnumeratedClient":
         c = cls.__new__(cls)
         c._super_init(uri)
         return c

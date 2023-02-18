@@ -77,7 +77,7 @@ from modelos.scm import SCM
 from modelos.virtual.container.registry import get_img_labels, get_repo_tags
 from modelos.run.kube.env import is_k8s_proc
 from modelos.run.kube.auth_util import ensure_cluster_auth_resources
-from modelos.env.image.build import img_id, client_hash
+from modelos.env.image.build import img_id, client_hash, path_to_module
 from modelos.object.kind import ObjectInfo
 from modelos.run.client import get_client_id
 from modelos.run.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
@@ -1427,13 +1427,14 @@ class Object(Kind):
         cls_package = ".".join(msplit)
 
         if cls_package == "__main__":
-            spec = importlib.util.spec_from_file_location("module.name", cls._client_filepath())
+            mod_name = path_to_module(cls._client_filepath())
+            spec = importlib.util.spec_from_file_location(mod_name, cls._client_filepath())
             if spec is None:
                 raise ValueError(
                     "Trouble loading client class, if you hit this please open an issue", cls._client_filepath()
                 )
             mod = importlib.util.module_from_spec(spec)
-            sys.modules["module.name"] = mod
+            sys.modules[mod_name] = mod
             if spec.loader is None:
                 raise ValueError(
                     "Trouble loading client class, loader is None, if you hit this please open an issue",
@@ -1893,7 +1894,7 @@ class Object(Kind):
             if not is_nested:
                 load_lines.append(indent(f"_{key} = _{jdict_name}['{key}']", idt))
 
-            t_hint = cls._proc_arg(t, import_statements, "")
+            t_hint = cls._proc_arg(t, import_statements, "", cls.__module__)
 
             # load_lines.append(indent(f"_{key}: {t_hint}", idt))
 
@@ -1908,7 +1909,7 @@ class Object(Kind):
                     raise ValueError(f"Dicts must be typed - {key}: {t}")
 
                 load_lines.append(indent(f"# code for dict: {t_hint}", idt))
-                t_hint = cls._proc_arg(t, import_statements, "")
+                t_hint = cls._proc_arg(t, import_statements, "", cls.__module__)
                 if is_first_order(args[1]):
                     return
 
@@ -1934,7 +1935,7 @@ class Object(Kind):
                     raise ValueError(f"Lists must be typed - {key}: {t}")
 
                 load_lines.append(indent(f"# code for list: {t_hint}", idt))
-                t_hint = cls._proc_arg(t, import_statements, "")
+                t_hint = cls._proc_arg(t, import_statements, "", cls.__module__)
                 if is_first_order(args[0]):
                     return
 
@@ -1985,8 +1986,8 @@ class Object(Kind):
                     if i > 0:
                         if_line = "elif"
 
-                    arg_hint = cls._proc_arg(arg, import_statements, "")
-                    h = cls._build_hint(arg, import_statements)
+                    arg_hint = cls._proc_arg(arg, import_statements, "", cls.__module__)
+                    h = cls._build_hint(arg, import_statements, cls.__module__)
 
                     if is_first_order(arg):
                         load_lines.append(indent(f"{if_line} type(_{key}) == {h}:", idt))
@@ -2019,7 +2020,7 @@ class Object(Kind):
                 pass
 
             elif is_enum(t):
-                h = cls._build_hint(t, import_statements)
+                h = cls._build_hint(t, import_statements, cls.__module__)
                 load_lines.append(indent(f"_{key} = {h}(_{key})", idt))
 
             elif hasattr(t, "__dict__"):
@@ -2028,7 +2029,7 @@ class Object(Kind):
                 # load_lines.append(indent(f"_{key} = _{key}.__dict__  # type: ignore", idt))
                 if hasattr(t, "__annotations__"):
                     annots = get_type_hints(t)
-                    h = cls._build_hint(t, import_statements)
+                    h = cls._build_hint(t, import_statements, cls.__module__)
 
                     load_lines.append(indent(f"_{key}_obj = object.__new__({h})", idt))
 
@@ -2130,7 +2131,7 @@ class Object(Kind):
                     if_line = "if"
                     if i > 0:
                         if_line = "elif"
-                    arg_hint = cls._proc_arg(arg, import_statements, "")
+                    arg_hint = cls._proc_arg(arg, import_statements, "", cls.__module__)
                     ret_lines.append(indent(f"{if_line} deep_isinstance(_{ret_name}, {arg_hint}):", idt))
 
                     len_ret = len(ret_lines)
@@ -2169,7 +2170,7 @@ class Object(Kind):
                 if hasattr(ret, "__annotations__"):
                     annotations = get_type_hints(ret)
                     for nm, typ in annotations.items():
-                        typ_hint = cls._proc_arg(typ, import_statements, "")
+                        typ_hint = cls._proc_arg(typ, import_statements, "", cls.__module__)
 
                         if is_first_order(typ):
                             continue
@@ -2370,7 +2371,7 @@ class Object(Kind):
         # cls_file_path = Path(inspect.getfile(cls))
         # cls_file = cls_file_path.stem
 
-        cls_arg = cls._proc_arg(cls, import_statements, "")
+        cls_arg = cls._proc_arg(cls, import_statements, "", cls.__module__)
 
         imports_joined = "\n".join(import_statements.keys())
         server_fns_joined = "".join(server_fns)
@@ -2449,12 +2450,23 @@ if __name__ == "__main__":
         return filepath
 
     @classmethod
-    def _build_hint(cls, h: Type, imports: Dict[str, Any], module: Optional[str] = None) -> str:
+    def _build_hint(
+        cls,
+        h: Type,
+        imports: Dict[str, Any],
+        object_module: str,
+    ) -> str:
+        # print("\n------")
+        # print("bulding hint for type: ", h)
+        # print("imports: ", imports)
+        # print("module: ", object_module)
+        # print("type module: ", h.__module__)
+
         if hasattr(h, "__forward_arg__"):
-            if module == "__main__":
+            if object_module == "__main__":
                 return h.__forward_arg__
-            fq = f"{module}.{h.__forward_arg__}"
-            imports[f"import {module}"] = None
+            fq = f"{object_module}.{h.__forward_arg__}"
+            imports[f"import {object_module}"] = None
             return fq
 
         if h == Ellipsis:
@@ -2475,19 +2487,24 @@ if __name__ == "__main__":
                     mod_name = filename.split(".")[0]
                     # we always assume that if the __module__ is main the resource is in
                     # the same module as the object, and if it weren't it would be a circular import
-                    imports[f"import {mod_name}"] = None
-                    return f"{mod_name}.{h.__name__}"
+                    imports[f"from .{mod_name} import {h.__name__}"] = None
+                    return f"{h.__name__}"
 
-                imports[f"import {h.__module__}"] = None
+                mod = h.__module__
+                if mod == object_module:
+                    imports[f"from .{object_module.split('.')[-1]} import {h.__name__}"] = None
+                    return h.__name__
+                else:
+                    imports[f"import {mod}"] = None
 
-                return f"{h.__module__}.{h.__name__}"
+                    return f"{mod}.{h.__name__}"
         else:
             if hasattr(h, "__module__"):
                 mod = h.__module__
             else:
-                if module is None:
+                if object_module is None:
                     raise ValueError("mod is None!")
-                mod = module
+                mod = object_module
 
             if mod == "__main__":
                 p = inspect.getfile(cls)
@@ -2498,26 +2515,36 @@ if __name__ == "__main__":
                 mod_name = filename.split(".")[0]
                 # we always assume that if the __module__ is main the resource is in
                 # the same module as the object, and if it weren't it would be a circular import
-                imports[f"import {mod_name}"] = None
-                return f"{mod_name}.{str(h)}"
+                imports[f"from .{mod_name} import {str(h)}"] = None
+                return str(h)
                 # f = inspect.getfile(h)
                 # client_path = cls._client_filepath()
                 # imports[f"import {cls.__module__}"] = None
                 # return f"{cls.__module__}.{str(h)}"
 
-            imports[f"import {mod}"] = None
-            return f"{mod}.{str(h)}"
+            if mod == object_module:
+                imports[f"from .{object_module.split('.')[-1]} import {str(h)}"] = None
+                return str(h)
+            else:
+                imports[f"import {mod}"] = None
+                return f"{mod}.{str(h)}"
 
     @classmethod
-    def _proc_arg(cls, t: Type, imports: Dict[str, Any], fin_param: str, module: Optional[str] = None) -> str:
-        ret_param = cls._build_hint(t, imports, module)
+    def _proc_arg(
+        cls,
+        t: Type,
+        imports: Dict[str, Any],
+        fin_param: str,
+        object_module: str,
+    ) -> str:
+        ret_param = cls._build_hint(t, imports, object_module)
         args = typing.get_args(t)
         if is_optional(t):
             args = args[:-1]
 
         ret_params: List[str] = []
         for arg in args:
-            ret_params.append(cls._proc_arg(arg, imports, fin_param, module))
+            ret_params.append(cls._proc_arg(arg, imports, fin_param, object_module))
 
         if len(ret_params) > 0:
             ret_param = f"{ret_param}[{', '.join(ret_params)}]"
@@ -2674,7 +2701,7 @@ if __name__ == "__main__":
                     if_line = "if"
                     if i > 0:
                         if_line = "elif"
-                    arg_hint = cls._proc_arg(arg, import_statements, "")
+                    arg_hint = cls._proc_arg(arg, import_statements, "", cls.__module__)
                     ser_lines.append(indent(f"{if_line} deep_isinstance({name}, {arg_hint}):", idt))
 
                     len_ser = len(ser_lines)
@@ -2713,7 +2740,7 @@ if __name__ == "__main__":
                 if hasattr(t, "__annotations__"):
                     annotations = get_type_hints(t)
                     for nm, typ in annotations.items():
-                        typ_hint = cls._proc_arg(typ, import_statements, "")
+                        typ_hint = cls._proc_arg(typ, import_statements, "", cls.__module__)
 
                         if is_first_order(typ):
                             continue
@@ -2911,7 +2938,7 @@ if __name__ == "__main__":
             if isinstance(fn, types.MethodType):
                 fin_params.append("self")
 
-            def proc_parameter(param: Parameter, imports: Dict[str, Any], module: Optional[str] = None):
+            def proc_parameter(param: Parameter, imports: Dict[str, Any], object_module: str):
                 nonlocal fin_params
 
                 name = param.name
@@ -2920,7 +2947,7 @@ if __name__ == "__main__":
                 if str(param).startswith("**"):
                     name = f"**{param.name}"
 
-                fin_param = build_param(name, cls._proc_arg(param.annotation, imports, "", module))
+                fin_param = build_param(name, cls._proc_arg(param.annotation, imports, "", object_module))
 
                 # TODO: handle Union
                 if param.default is not param.empty:
@@ -3031,13 +3058,14 @@ if __name__ == "__main__":
     {fin_sig}
         {doc}
         ClientOpts = OptsBuilder[Opts].build(self.__class__)
-        opts = ClientOpts({super_joined})
+        opts = ClientOpts({super_joined})  # type: ignore
         super().__init__(opts=opts, **kwargs)
                 """
 
             elif is_iterable:
                 import_statements["import socket"] = None
                 import_statements["from websocket import create_connection"] = None
+                import_statements["from urllib import parse"] = None
 
                 ret_ser_lines_joined = ""
                 for line in ret_ser_lines:
@@ -3119,9 +3147,19 @@ if __name__ == "__main__":
             raise ValueError("could not find the path of the executing script, if you hit this please create an issue")
         filename = os.path.basename(m.__file__)
         mod_name = filename.split(".")[0]
+
+        main_imports: Dict[str, None] = {}
+        for imprt in import_statements.keys():
+            if f"from .{mod_name}" in imprt:
+                main_imprt = imprt.replace(f".{mod_name}", "__main__")
+                main_imprt += "  # type: ignore # noqa"
+                main_imports[main_imprt] = None
+
+        main_imports_joined = "\n".join(main_imports.keys())
+
         client_file = f"""
 # This file was generated by ModelOS
-from urllib import request, parse
+from urllib import request
 import json
 import os
 from typing import Type
@@ -3134,7 +3172,7 @@ from modelos.object.opts import OptsBuilder, Opts
 {imports_joined}
 
 if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(Path('{filename}')):
-    import __main__ as {mod_name}  # type: ignore # noqa
+    {main_imports_joined}
 
 class {cls.__name__}Client(Client):
     \"""A resource client for {cls.__name__}\"""
@@ -3181,7 +3219,7 @@ class {cls.__name__}Client(Client):
             client_code = isort.code(client_code)
             client_code = format_str(client_code, mode=FileMode())
             f.write(client_code)
-            unimport_main.run(["-r", filepath])
+            # unimport_main.run(["-r", filepath])
         return filepath
 
     def __enter__(self):

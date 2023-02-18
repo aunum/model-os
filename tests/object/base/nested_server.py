@@ -10,9 +10,9 @@ from starlette.applications import Starlette
 from starlette.responses import JSONResponse
 from starlette.routing import BaseRoute, Route
 
-from modelos.object.encoding import deep_isinstance
+from modelos.object.encoding import deep_isinstance, is_first_order
 
-from .base_test import Foo
+from .base_test import Ham, Nested
 
 log_level = os.getenv("LOG_LEVEL")
 if log_level is None:
@@ -21,8 +21,182 @@ else:
     logging.basicConfig(level=log_level)
 
 
-class FooServer(Foo):
-    """A resource server for Foo"""
+class NestedServer(Nested):
+    """A resource server for Nested"""
+
+    async def _get_d_req(self, request):
+        """Request for function:
+        get_d(self, name: str) -> __main__.Ham
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_d(**_jdict)
+        print("called function: ", _ret)
+        # code for object: <class '__main__.Ham'>
+        _ret = _ret.__dict__  # type: ignore
+        # end object: <class '__main__.Ham'>
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_h_req(self, request):
+        """Request for function:
+        get_h(self) -> __main__.Ham
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_h(**_jdict)
+        print("called function: ", _ret)
+        # code for object: <class '__main__.Ham'>
+        _ret = _ret.__dict__  # type: ignore
+        # end object: <class '__main__.Ham'>
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_lh_req(self, request):
+        """Request for function:
+        get_lh(self) -> List[__main__.Ham]
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_lh(**_jdict)
+        print("called function: ", _ret)
+        # code for list: typing.List[__main__.Ham]
+        _ret_list = []
+        for _a_val in _ret:  # type: ignore
+            # code for object: <class '__main__.Ham'>
+            _a_val = _a_val.__dict__  # type: ignore
+            # end object: <class '__main__.Ham'>
+
+            _ret_list.append(_a_val)
+        _ret = _ret_list
+        # end list: typing.List[__main__.Ham]
+
+        _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_o_req(self, request):
+        """Request for function:
+        get_o(self) -> Optional[__main__.Ham]
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_o(**_jdict)
+        print("called function: ", _ret)
+        # code for union: typing.Optional[__main__.Ham]
+        if deep_isinstance(_ret, None):
+            pass
+        elif deep_isinstance(_ret, Ham):
+            # code for object: <class '__main__.Ham'>
+            _ret = _ret.__dict__  # type: ignore
+            # end object: <class '__main__.Ham'>
+
+        else:
+            raise ValueError(
+                "Do not know how to serialize"
+                + "parameter 'typing.Optional[__main__.Ham]' "
+                + f"of type '{type(_ret)}'"
+            )
+        # end union: typing.Optional[__main__.Ham]
+
+        if is_first_order(type(_ret)) or _ret is None:
+            _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
+
+    async def _get_u_req(self, request):
+        """Request for function:
+        get_u(self) -> Union[str, __main__.Ham]
+        """
+
+        body = await request.body()
+        print("len body: ", len(body))
+        print("body: ", body)
+
+        _jdict = {}
+        if len(body) != 0:
+            _jdict = json.loads(body)
+
+        headers = request.headers
+        logging.debug(f"headers: {headers}")
+        self._check_lock(headers)
+
+        print("calling function: ", _jdict)
+        _ret = self.get_u(**_jdict)
+        print("called function: ", _ret)
+        # code for union: typing.Union[str, __main__.Ham]
+        if deep_isinstance(_ret, str):
+            pass
+        elif deep_isinstance(_ret, Ham):
+            # code for object: <class '__main__.Ham'>
+            _ret = _ret.__dict__  # type: ignore
+            # end object: <class '__main__.Ham'>
+
+        else:
+            raise ValueError(
+                "Do not know how to serialize"
+                + "parameter 'typing.Union[str, __main__.Ham]' "
+                + f"of type '{type(_ret)}'"
+            )
+        # end union: typing.Union[str, __main__.Ham]
+
+        if is_first_order(type(_ret)) or _ret is None:
+            _ret = {"value": _ret}
+
+        print("returning: ", _ret)
+        return JSONResponse(_ret)
 
     async def _health_req(self, request):
         """Request for function:
@@ -166,9 +340,9 @@ class FooServer(Foo):
         print("returning: ", _ret)
         return JSONResponse(_ret)
 
-    async def _test_req(self, request):
+    async def _set_d_req(self, request):
         """Request for function:
-        test(self) -> None
+        set_d(self, name: str, ham: __main__.Ham) -> None
         """
 
         body = await request.body()
@@ -183,8 +357,23 @@ class FooServer(Foo):
         logging.debug(f"headers: {headers}")
         self._check_lock(headers)
 
+        _ham = _jdict["ham"]
+
+        # code for obj: Ham
+        _ham_obj = object.__new__(Ham)
+        _a_attr = _ham["a"]
+        setattr(_ham_obj, "a", _a_attr)
+
+        _b_attr = _ham["b"]
+        setattr(_ham_obj, "b", _b_attr)
+
+        _ham = _ham_obj  # type: ignore
+        # end obj: Ham
+
+        _jdict["ham"] = _ham
+
         print("calling function: ", _jdict)
-        _ret = self.test(**_jdict)
+        _ret = self.set_d(**_jdict)
         print("called function: ", _ret)
         _ret = {"value": None}
 
@@ -306,11 +495,16 @@ class FooServer(Foo):
 
     def _routes(self) -> List[BaseRoute]:
         return [
+            Route("/get_d", endpoint=self._get_d_req, methods=["POST"]),
+            Route("/get_h", endpoint=self._get_h_req, methods=["POST"]),
+            Route("/get_lh", endpoint=self._get_lh_req, methods=["POST"]),
+            Route("/get_o", endpoint=self._get_o_req, methods=["POST"]),
+            Route("/get_u", endpoint=self._get_u_req, methods=["POST"]),
             Route("/health", endpoint=self._health_req, methods=["GET", "POST"]),
             Route("/info", endpoint=self._info_req, methods=["POST"]),
             Route("/lock", endpoint=self._lock_req, methods=["POST"]),
             Route("/save", endpoint=self._save_req, methods=["POST"]),
-            Route("/test", endpoint=self._test_req, methods=["POST"]),
+            Route("/set_d", endpoint=self._set_d_req, methods=["POST"]),
             Route("/unlock", endpoint=self._unlock_req, methods=["POST"]),
             Route("/labels", endpoint=self._labels_req, methods=["POST"]),
             Route("/name", endpoint=self._name_req, methods=["POST"]),
@@ -318,7 +512,7 @@ class FooServer(Foo):
         ]
 
 
-o = FooServer.from_env()
+o = NestedServer.from_env()
 pkgs = o._reload_dirs()
 
 app = Starlette(routes=o._routes())
