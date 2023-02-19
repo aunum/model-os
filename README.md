@@ -183,7 +183,7 @@ bar_pkg = Pkg("bar", version="v1.2.3", remote="acme.org/ml-project")
 clean(remote, name, releases=True)
 ```
 
-See the ["tests"](./tests/pkg/pkg_test.py) for more examples
+See the [tests](./tests/pkg/pkg_test.py) for more examples
 
 ## Roadmap
 
