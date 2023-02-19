@@ -1,10 +1,9 @@
 from __future__ import annotations
 import re
-from pathlib import Path
 from dataclasses import dataclass
 import yaml
 
-from modelos.local import pkg_home
+import modelos.pkg.repo.local
 
 
 @dataclass
@@ -89,22 +88,13 @@ class PkgID:
         """
         return NVS(self.name, self.version, self.scheme)
 
-    def local_path(self) -> str:
+    def local_path(self, repo: modelos.pkg.repo.local.LocalPkgRepo) -> str:
         """Convert the ID to a local path
 
         Returns:
             str: The local path
         """
-        out_path = Path(pkg_home()).joinpath(self.host)
-
-        repo_parts = self.repo.split("/")
-        for part in repo_parts:
-            out_path = out_path.joinpath(part)
-
-        out_path = out_path.joinpath(self.name).joinpath(self.version)
-        out = str(out_path)
-
-        return out
+        return repo.find_path(self)
 
     def __str__(self):
         return yaml.dump(self.__dict__)

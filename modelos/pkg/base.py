@@ -1,13 +1,10 @@
 from __future__ import annotations
-from typing import List, Type, Dict, Optional, Union, IO, Any
+from typing import List, Type, Dict, Optional, Union, IO, Any, Tuple
 import os
 from pathlib import Path
 import logging
 import shutil
 import yaml
-import json
-
-from semver import VersionInfo
 
 from modelos.pkg.repo import RemotePkgRepo, LocalPkgRepo, remote_pkgrepo_from_uri
 from modelos.pkg.info import PkgInfo
@@ -52,18 +49,18 @@ class Pkg:
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
             tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
             remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
-            local (Optional[Union[LocalPkgRepo, str]], optional): Local repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use to find repo. Defaults to None.
         """
         if isinstance(files, str):
             files = [files]
 
-        self._repo = self._get_repo(repo, config)
+        self._local, self._remote = self._get_repos(local, remote, config)
 
-        if self.exists(name, version, scheme, self._repo):
+        if self.exists(name, version, scheme, self._remote, self._local, config):
             logging.info(f"found pkg '{name}'")
             try:
-                pkg = self.pull(name, version, repo=self._repo)
+                pkg = self.pull(name, version, scheme=scheme, remote=self._remote, local=self._local, config=config)
             except Exception as e:
                 raise ValueError(f"could not find pkg {name}:{version}: {e}")
 
@@ -76,7 +73,16 @@ class Pkg:
                 raise ValueError("'files' parameter must be set when creating a new package")
 
             pkg = self.new(
-                name, description, files, version=version, labels=labels, tags=tags, repo=self._repo, scheme=scheme
+                name,
+                description,
+                files,
+                version=version,
+                scheme=scheme,
+                labels=labels,
+                tags=tags,
+                remote=self._remote,
+                local=self._local,
+                config=config,
             )
         self._id = pkg._id
         self._root_dir = pkg._root_dir
@@ -92,7 +98,8 @@ class Pkg:
         scheme: str = DEFAULT_SCHEME,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
     ) -> Pkg:
         """Create a new package
@@ -105,7 +112,8 @@ class Pkg:
             scheme (str, optional): Scheme of the package. Defaults to 'fs'.
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
             tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
-            repo (Optional[Union[PkgRepo, str]], optional): Repo for the package. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
 
         Returns:
@@ -119,24 +127,16 @@ class Pkg:
         if tags is None:
             tags = []
 
-        repo = cls._get_repo(repo, config)
+        local, remote = cls._get_repos(local, remote, config)
 
         if version is None:
             version = hash_all(files)
 
-        id = repo.build_id(NVS(name, version, scheme))
-
-        verdir = cls._pkg_local_dir(id)
-        os.makedirs(verdir, exist_ok=True)
-
-        for fp in files:
-            copy_any(fp, id.local_path())
-
+        id = remote.build_id(NVS(name, version, scheme))
         file_hashes = hash_files(files)
 
-        info = PkgInfo(name, version, scheme, description, str(repo), labels, tags, file_hashes)
-
-        info.write_local(id)
+        info = PkgInfo(name, version, scheme, description, remote.uri(), labels, tags, file_hashes)
+        local.new(info, files)
 
         pkg = cls.from_id(id)
         return pkg
@@ -145,26 +145,29 @@ class Pkg:
     def from_id(
         cls,
         id: PkgID,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
     ) -> Pkg:
         """Create a package from an ID
 
         Args:
             id (PkgID): ID to create package from
-            repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use
 
         Returns:
             Pkg: The package
         """
-        repo = cls._get_repo(repo, config)
+        local, remote = cls._get_repos(local, remote, config)
         pkg = object.__new__(cls)
         pkg._id = id
-        out = id.local_path()
+        out = id.local_path(local)
         pkg._root_dir = out
         pkg._version = id.version
-        pkg._repo = pkgrepo_from_uri(repo.uri())
+        pkg._remote = remote_pkgrepo_from_uri(remote.uri())
+        pkg._local = local
 
         return pkg
 
@@ -172,7 +175,8 @@ class Pkg:
         self,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
     ) -> None:
         """Push a package
@@ -180,13 +184,11 @@ class Pkg:
         Args:
             labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
             tags (Optional[str], optional): Tags to add. Defaults to None
-            repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use
         """
-        if repo is None:
-            if hasattr(self, "_repo"):
-                repo = self._repo
-        repo = self._get_repo(repo, config)
+        local, remote = self._get_inst_repos(local, remote, config)
 
         info = self.info()
         if not labels:
@@ -196,10 +198,17 @@ class Pkg:
             tags = info.tags
 
         info = PkgInfo(
-            self._id.name, self._id.version, self._id.scheme, info.description, str(repo), labels, tags, info.file_hash
+            self._id.name,
+            self._id.version,
+            self._id.scheme,
+            info.description,
+            remote.uri(),
+            labels,
+            tags,
+            info.file_hash,
         )
 
-        repo.push(info, files=self._root_dir)
+        remote.push(info, files=local.repo_dir)
 
         return None
 
@@ -210,7 +219,8 @@ class Pkg:
         version: Optional[str] = None,
         scheme: str = DEFAULT_SCHEME,
         uri: Optional[str] = None,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
         force: bool = True,
     ) -> Pkg:
@@ -221,7 +231,8 @@ class Pkg:
             version (Optional[str], optional): Version of the pkg. If not provided will use latest stable.
             scheme (str, optional): Scheme of the package. Defaults to 'fs'
             uri (Optional[str], optional): URI of the pkg. Defaults to None.
-            repo (Optional[Union[PkgRepo, str]], optional): Repo of the package. Defaults to the local config option.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use
             force (bool, optional): Whether to force pull
 
@@ -229,20 +240,20 @@ class Pkg:
             Pkg: A package
         """
         id: PkgID
-        repo = cls._get_repo(repo, config)
+        local, remote = cls._get_repos(local, remote, config)
         if uri is None:
             if name is None:
                 raise ValueError("name must be provided if URI is None")
             if version is None:
-                version = cls._latest(name, scheme, repo)
+                version = cls._latest(name, scheme, remote)
                 if version is None:
                     raise ValueError(f"could not find version '{version}' for '{name}'")
                 logging.info(f"using version: {version}")
-            id = repo.build_id(NVS(name, version, scheme))
+            id = remote.build_id(NVS(name, version, scheme))
         else:
-            id = repo.parse(uri)
+            id = remote.parse(uri)
 
-        out = id.local_path()
+        out = id.local_path(local)
 
         if os.path.exists(out):
             if force:
@@ -251,7 +262,7 @@ class Pkg:
                 logging.info("pkg already exists locally")
                 return cls.from_id(id)
 
-        repo.pull(id.name, id.version)
+        remote.pull(id.name, id.version)
         logging.info(f"pulled pkg '{name}.{version}' to '{out}'")
 
         return cls.from_id(id)
@@ -262,7 +273,8 @@ class Pkg:
         name: str,
         version: Optional[str] = None,
         scheme: str = DEFAULT_SCHEME,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
     ) -> bool:
         """Check if the package name exists
@@ -271,21 +283,21 @@ class Pkg:
             name (str): Name of the package
             version (Optional[str], optional): Version of the package. Defaults to None.
             scheme (str, optional): Scheme of the package. Defaults to 'fs'
-            repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use. Defaults to None.
 
         Returns:
             bool: Whether the package name exists
         """
-        repo = cls._get_repo(repo, config)
-        ids = repo.ids()
+        local, remote = cls._get_repos(local, remote, config)
+        ids = remote.ids()
 
         for id in ids:
             try:
-                nvs = PkgID.parse_nvs(id)
-                if nvs.name == name and nvs.scheme == scheme:
+                if id.name == name and id.scheme == scheme:
                     if version:
-                        if version == nvs.version:
+                        if version == id.version:
                             return True
                     else:
                         return True
@@ -313,13 +325,21 @@ class Pkg:
         """
         copy_any(filepath, self._root_dir)
 
-    def repo(self) -> PkgRepo:
-        """Get the repo for this package
+    def remote(self) -> RemotePkgRepo:
+        """Get the remote repo for this package
 
         Returns:
-            PkgRepo: A package repo
+            RemotePkgRepo: A remote package repo
         """
-        return self._repo
+        return self._remote
+
+    def local(self) -> LocalPkgRepo:
+        """Get the local repo for this package
+
+        Returns:
+            LocalPkgRepo: A local package repo
+        """
+        return self._local
 
     def read(self, filepath: str) -> str:
         """Read a file from the package
@@ -392,8 +412,8 @@ class Pkg:
         Returns:
             PkgID: ID
         """
-        self._repo.delete(self._id.name, self._id.version)
-        shutil.rmtree(self._id.local_path())
+        self._remote.delete(self._id.name, self._id.version, self._id.scheme)
+        self._local.delete(self._id.name, self._id.version, self._id.scheme)
         logging.info(f"deleted '{str(self._id)}'")
 
     def open(self, filepath: str, mode: str = "r") -> IO[Any]:
@@ -441,31 +461,35 @@ class Pkg:
         return hash_all(self.all_files(relative=False))
 
     def latest(
-        self, scheme: str = DEFAULT_SCHEME, repo: Optional[Union[PkgRepo, str]] = None, config: Optional[Config] = None
+        self,
+        scheme: str = DEFAULT_SCHEME,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        config: Optional[Config] = None,
     ) -> Optional[str]:
         """Latest release for the package
 
         Args:
-            repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
             scheme (str, optional): Scheme of the package. Defaults to 'fs'
             config (Optional[Config], optional): Config to use. Defaults to None.
 
         Returns:
             Optional[str]: The latest semver release, or None if no version exists
         """
-        if repo is None:
-            if hasattr(self, "_repo"):
-                repo = self._repo
-        return self._latest(self._id.name, scheme, repo, config)
+        if remote is None:
+            if hasattr(self, "_remote"):
+                remote = self._remote
+        return self._latest(self._id.name, scheme, remote, config)
 
     def release(
         self,
         version: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
         config: Optional[Config] = None,
-        remote: bool = True,
+        push: bool = True,
     ) -> None:
         """Release the package
 
@@ -473,14 +497,12 @@ class Pkg:
             version (str, optional): Version of the release. Defaults to auto-versioning
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
             tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
-            repo (Optional[Union[PkgRepo, str]], optional): Repo for the package. Defaults to None.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
-            remote (bool, optional): Whether to push remote as well. Defaults to True.
+            puth (bool, optional): Whether to push remote as well. Defaults to True.
         """
-        if repo is None:
-            if hasattr(self, "_repo"):
-                repo = self._repo
-        repo = self._get_repo(repo, config)
+        local, remote = self._get_inst_repos(local, remote, config)
 
         current_info = self.info()
         if version is None:
@@ -491,7 +513,7 @@ class Pkg:
                 current_hashes = hash_files(self.all_files(relative=False))
                 current_info.file_hash = current_hashes
             else:
-                uri = repo.build_uri(self._id)
+                uri = remote.build_uri(self._id)
                 latest_manifest = self.manifest(uri)
                 print("latest manifest: ", latest_manifest.__dict__)
                 current_hashes = hash_files(self.all_files(relative=False))
@@ -510,15 +532,15 @@ class Pkg:
         if tags is not None:
             current_info.tags = tags
 
-        old_path = self._id.local_path()
+        old_path = self._id.local_path(local)
         self._id.version = version
-        os.rename(old_path, self._id.local_path())
+        os.rename(old_path, self._id.local_path(local))
 
         current_info.write_local(self._id)
-        self._root_dir = self._id.local_path()
+        self._root_dir = self._id.local_path(local)
 
-        if remote:
-            self.push(current_info.labels, current_info.tags, repo, config)
+        if push:
+            self.push(current_info.labels, current_info.tags, remote, local, config)
 
         logging.info(f"successfully released '{self._id.name}' at version '{version}'")
 
@@ -530,14 +552,7 @@ class Pkg:
         Returns:
             PkgInfo: Package info
         """
-        meta_path = self._pkg_local_dir(self._id).joinpath("./info.yaml")
-        with open(meta_path, "r") as f:
-            loaded = yaml.load(f, Loader=yaml.FullLoader)
-            if "tags" in loaded:
-                loaded_tags = loaded["tags"]
-                if isinstance(loaded_tags, str):
-                    loaded["tags"] = json.loads(loaded["tags"])
-            return PkgInfo(**loaded)
+        return self._local.info(self._id.name, self._id.version, self._id.scheme)
 
     def show(self) -> None:
         """Show the package"""
@@ -548,14 +563,14 @@ class Pkg:
         print("---")
         print(yaml.dump(info))
         print("contents: >")
-        list_files(self._id.local_path())
+        list_files(self._id.local_path(self._local))
         print("")
 
     @classmethod
     def describe(
         cls,
         uri: str,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
         config: Optional[Config] = None,
     ) -> None:
         """Describe the URI
@@ -563,7 +578,7 @@ class Pkg:
         Args:
             uri (str): URI to describe
         """
-        info = cls.manifest(uri)
+        info = cls.manifest(uri, remote, config)
         info.show()
         return
 
@@ -571,30 +586,52 @@ class Pkg:
     def manifest(
         cls,
         uri: str,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
         config: Optional[Config] = None,
     ) -> PkgInfo:
         """Get info on remote package
 
         Args:
-            uri (str): URI to get a manifest for
-        """
-        repo = cls._get_repo(repo, config)
-        id = repo.parse(uri)
-        return repo.info(id.name, id.version)
+            uri (str): URI to get manifest for
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            config (Optional[Config], optional): Config to use. Defaults to None.
 
-    def clean(self, releases: bool = False, remote: bool = True) -> None:
+        Returns:
+            PkgInfo: Package info
+        """
+        _, remote = cls._get_repos(remote=remote, config=config)
+        id = remote.parse(uri)
+        return remote.info(id.name, id.version)
+
+    def clean(
+        self,
+        releases: bool = False,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
+        include_remote: bool = True,
+        config: Optional[Config] = None,
+    ) -> None:
         """Clean the packages
 
         Args:
             releases (bool, optional): Clean releases as well. Defaults to False.
-            remote (bool, optional): Whether to clean remote packages. Defaults to True.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
+            include_remote (bool, optional): Whether to clean remote packages. Defaults to True.
+            config (Optional[Config], optional) Config to use. Defaults to None.
         """
-        self._clean(self._repo, self._id.name, self._id.scheme, releases, remote)
+        self._clean(self._id.name, self._id.scheme, releases, remote, local, include_remote, config)
 
     @classmethod
     def _clean(
-        cls, repo: PkgRepo, name: str, scheme: str = DEFAULT_SCHEME, releases: bool = False, remote: bool = True
+        cls,
+        name: str,
+        scheme: str = DEFAULT_SCHEME,
+        releases: bool = False,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        local: Optional[LocalPkgRepo] = None,
+        include_remote: bool = True,
+        config: Optional[Config] = None,
     ) -> None:
         """Clean the packages
 
@@ -603,47 +640,61 @@ class Pkg:
             name (str): Name of the package
             scheme (str): Scheme of the package
             releases (bool, optional): Clean releases as well. Defaults to False.
-            remote (bool, optional): Whether to clean remote packages. Defaults to True.
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
+            include_remote (bool, optional): Whether to clean remote packages. Defaults to True.
+            config (Optional[Config], optional) Config to use. Defaults to None.
         """
-        local_pth = repo.local_path(name)
-        for nm in os.listdir(local_pth):
-            dir_pth = os.path.join(local_pth, nm)
-            if os.path.isdir(dir_pth):
-                is_release = False
-                try:
-                    VersionInfo.parse(nm[1:])
-                    is_release = True
-                except Exception:
-                    pass
-                if not releases and is_release:
-                    continue
-                shutil.rmtree(dir_pth)
-                logging.info(f"deleted local pkg '{dir_pth}'")
+        local, remote = cls._get_repos(local, remote, config)
+        local.clean(name, scheme, releases)
+        if include_remote:
+            remote.clean(name, scheme, releases)
 
-        if remote:
-            repo.clean(name, scheme, releases)
+    def _get_inst_repos(
+        self,
+        local: Optional[LocalPkgRepo] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        config: Optional[Config] = None,
+    ) -> Tuple[LocalPkgRepo, RemotePkgRepo]:
+        if remote is None:
+            if hasattr(self, "_remote"):
+                remote = self._remote
+
+        if local is None:
+            if hasattr(self, "_local"):
+                local = self._local
+
+        return self._get_repos(local, remote, config)
 
     @classmethod
-    def _get_repo(cls, repo: Optional[Union[PkgRepo, str]] = None, config: Optional[Config] = None) -> PkgRepo:
-        if repo is None:
+    def _get_repos(
+        cls,
+        local: Optional[LocalPkgRepo] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
+        config: Optional[Config] = None,
+    ) -> Tuple[LocalPkgRepo, RemotePkgRepo]:
+        if remote is None:
             if config is None:
                 config = Config()
 
-            repo = config.image_repo
-            if repo is None:
+            remote = config.pkg_repo
+            if remote is None:
                 raise ValueError(
                     "could not find a configured repo url, must supply the `repo` parameter, "
-                    + "or set either $MDL_IMAGE_REPO,"
-                    + " add `tool.modelos.image_repo` to pyproject.toml, or add `image_repo` to mdl.yaml"
+                    + "or set either $MDL_PKG_REPO,"
+                    + " add `tool.modelos.image_repo` to pyproject.toml, or add `pkg_repo` to mdl.yaml"
                 )
-        if isinstance(repo, PkgRepo):
-            return repo
+        if isinstance(remote, str):
+            remote = remote_pkgrepo_from_uri(remote)
 
-        return pkgrepo_from_uri(repo)
+        if local is None:
+            local = LocalPkgRepo()
+
+        return local, remote
 
     @classmethod
-    def _pkg_local_dir(cls, id: PkgID) -> Path:
-        pkg_path = id.local_path()
+    def _pkg_local_dir(cls, id: PkgID, local: LocalPkgRepo) -> Path:
+        pkg_path = id.local_path(local)
         verdir = Path(pkg_path).joinpath(".mdl")
         return verdir
 
@@ -652,32 +703,11 @@ class Pkg:
         cls,
         name: str,
         scheme: str = DEFAULT_SCHEME,
-        repo: Optional[Union[PkgRepo, str]] = None,
+        remote: Optional[Union[RemotePkgRepo, str]] = None,
         config: Optional[Config] = None,
     ) -> Optional[str]:
-        repo = Pkg._get_repo(repo, config)
-        ids = repo.ids()
-        latest_version: Optional[VersionInfo] = None
-        for id in ids:
-            try:
-                nvs = PkgID.parse_nvs(id)
-                if nvs.name != name:
-                    continue
-                if nvs.scheme != scheme:
-                    continue
-                info = VersionInfo.parse(nvs.version[1:])
-                if latest_version is None:
-                    latest_version = info
-
-                if info > latest_version:
-                    latest_version = info
-            except Exception:
-                continue
-
-        if latest_version is None:
-            return None
-
-        return f"v{str(latest_version)}"
+        _, remote = cls._get_repos(remote=remote, config=config)
+        return remote.latest(name, scheme)
 
 
 def push(
@@ -699,7 +729,7 @@ def push(
     Returns:
         Pkg: A package
     """
-    repo = pkgrepo_from_uri(uri)
+    repo = remote_pkgrepo_from_uri(uri)
     id = repo.parse(uri)
     pkg = Pkg(id.name, files, description, id.version, id.scheme, labels, tags, id.repo)
     pkg.push()
@@ -757,23 +787,28 @@ def describe(uri: str) -> None:
 
 
 def latest(
-    name: str, scheme: str = DEFAULT_SCHEME, repo: Optional[Union[PkgRepo, str]] = None, config: Optional[Config] = None
+    name: str,
+    scheme: str = DEFAULT_SCHEME,
+    remote: Optional[Union[RemotePkgRepo, str]] = None,
+    config: Optional[Config] = None,
 ) -> Optional[str]:
     """Latest release for the package
 
     Args:
         name (str): Name of the package
         scheme (str, optional): Scheme of the package. Defaults to 'fs'
-        repo (Optional[Union[PkgRepo, str]], optional): Repo to use. Defaults to None.
+        remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
         config (Optional[Config], optional): Config to use. Defaults to None.
 
     Returns:
         Optional[str]: The latest semver release, or None if no version exists
     """
-    return Pkg._latest(name, scheme, repo, config)
+    return Pkg._latest(name, scheme, remote, config)
 
 
-def clean(uri: str, name: str, scheme: str = DEFAULT_SCHEME, releases: bool = False, remote: bool = True) -> None:
+def clean(
+    uri: str, name: str, scheme: str = DEFAULT_SCHEME, releases: bool = False, include_remote: bool = True
+) -> None:
     """Clean the packages
 
     Args:
@@ -781,7 +816,7 @@ def clean(uri: str, name: str, scheme: str = DEFAULT_SCHEME, releases: bool = Fa
         name (str): Name of the package
         scheme (str, optional): Scheme of the package. Defaults to 'fs'
         releases (bool, optional): Clean releases as well. Defaults to False.
-        remote (bool, optional): Whether to clean remote packages. Defaults to True.
+        include_remote (bool, optional): Whether to clean remote packages. Defaults to True.
     """
-    repo = pkgrepo_from_uri(uri)
-    Pkg._clean(repo, name, scheme, releases, remote)
+    repo = remote_pkgrepo_from_uri(uri)
+    Pkg._clean(name, scheme, releases, remote=repo, include_remote=include_remote)
