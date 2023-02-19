@@ -142,6 +142,49 @@ ham.bake(temp=400)
 
 An example working project can be found at https://github.com/pbarker/kvd
 
+## Packages
+Packages are versioned filesystems
+
+```python
+from modelos.pkg import Pkg, clean
+
+# Create a new package from the ./data dir
+pkg = Pkg("foo", "./data", "A foo package", remote="acme.org/ml-project")
+
+# See package contents
+pkg.show()
+
+# Push the package to its remote
+pkg.push()
+
+# List files in the package
+files = pkg.ls()
+
+# open a file in the package
+with pkg.open("./foo.yaml") as f:
+    b = f.read()
+
+# Release the package
+pkg.release("v0.0.1", labels={"type": "foo"}, tags=["baz"])
+
+# Check the latest package is our release
+assert pkg.latest() == "v0.0.1"
+
+# Delete the package
+pkg.delete()
+
+# Describe a remote package
+info = Pkg.describe("acme.org/ml-project:pkg.fs.bar.v1.2.3")
+
+# Use a remote package
+bar_pkg = Pkg("bar", version="v1.2.3", remote="acme.org/ml-project")
+
+# Clean packages
+clean(remote, name, releases=True)
+```
+
+See the ["tests"](./tests/pkg/pkg_test.py) for more examples
+
 ## Roadmap
 
 - [ ] Class methods

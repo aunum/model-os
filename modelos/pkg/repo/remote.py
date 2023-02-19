@@ -54,6 +54,7 @@ class RemotePkgRepo(ABC):
         self,
         name: str,
         version: str,
+        out: str,
         scheme: str = DEFAULT_SCHEME,
     ) -> None:
         """Pull a pkg
@@ -61,12 +62,14 @@ class RemotePkgRepo(ABC):
         Args:
             name (str): Name of the pkg
             version (str): Version of the pkg
+            out (str): Where to write pkg
             scheme (str, optional): Scheme of the pkg
         """
         pass
 
+    @classmethod
     @abstractmethod
-    def parse(self, uri: str) -> PkgID:
+    def parse(cls, uri: str) -> PkgID:
         """Parse a URI into a package ID
 
         Args:
@@ -110,6 +113,15 @@ class RemotePkgRepo(ABC):
 
         Returns:
             PkgInfo: Pkg info
+        """
+        pass
+
+    @abstractmethod
+    def show(self, id: PkgID) -> None:
+        """Show the pkg
+
+        Args:
+            id (PkgID): ID of the pkg
         """
         pass
 
@@ -179,19 +191,5 @@ class RemotePkgRepo(ABC):
 
         Returns:
             PkgID: A PkgID
-        """
-        pass
-
-    @abstractmethod
-    def local_path(self, name: Optional[str], version: Optional[str] = None, scheme: str = DEFAULT_SCHEME) -> str:
-        """Local path of the pkg
-
-        Args:
-            name (Optional[str], optional): Name of the pkg
-            version (Optional[str], optional): Version of the pkg
-            scheme (str, optional): Scheme of the pkg. Defaults to 'fs'
-
-        Returns:
-            str: Local path of the pkg
         """
         pass

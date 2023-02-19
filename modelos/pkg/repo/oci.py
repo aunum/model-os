@@ -1,6 +1,6 @@
 from typing import List, Optional, Union
 import logging
-from pathlib import Path
+import yaml
 
 from opencontainers.distribution.reggie import NewClient
 from semver import VersionInfo
@@ -12,7 +12,6 @@ from modelos.pkg.id import PkgID, NVS
 from modelos.pkg.info import PkgInfo
 from modelos.pkg.scheme import DEFAULT_SCHEME
 from modelos.virtual.container.registry import get_oci_client, get_repo_tags, delete_repo_tag, get_img_labels
-from modelos.local import pkg_home
 from modelos.virtual.container.id import ImageID
 
 
@@ -86,13 +85,15 @@ class OCIPkgRepo(RemotePkgRepo):
         """
         id = info.id()
         uri = self.build_uri(id)
-        of.push(uri, files, labels=info.flat_labels())
+        labels = info.flat_labels()
+        of.push(uri, files, labels=labels)
         logging.info(f"successfully pushed '{uri}'")
 
     def pull(
         self,
         name: str,
         version: str,
+        out: str,
         scheme: str = DEFAULT_SCHEME,
     ) -> None:
         """Pull a pkg
@@ -100,13 +101,13 @@ class OCIPkgRepo(RemotePkgRepo):
         Args:
             name (str): Name of the pkg
             version (str): Version of the pkg
+            out (str): Where to write pkg
             scheme (str, optional): Scheme of the pkg
         """
         nvs = NVS(name, version, scheme)
         id = self.build_id(nvs)
         uri = self.build_uri(id)
-        local = self.local_path(scheme, name, version)
-        of.pull(uri, local)
+        of.pull(uri, out)
         return
 
     def info(self, name: str, version: str, scheme: str = DEFAULT_SCHEME) -> PkgInfo:
@@ -125,6 +126,24 @@ class OCIPkgRepo(RemotePkgRepo):
         uri = self.build_uri(id)
         labels = get_img_labels(uri)
         return PkgInfo.from_flat(labels)
+
+    def show(self, id: PkgID) -> None:
+        """Show the pkg
+
+        Args:
+            id (PkgID): ID of the pkg
+        """
+        print("---")
+        out = self.info(id.name, id.version, id.scheme).__dict__
+        out.pop("file_hash")
+
+        fin = {}
+        for k, v in out.items():
+            if v:
+                fin[k] = v
+
+        print(yaml.dump(fin))
+        print("")
 
     def names(self, scheme: str = DEFAULT_SCHEME) -> List[str]:
         """Names of the packages in the repo
@@ -312,32 +331,6 @@ class OCIPkgRepo(RemotePkgRepo):
             self.registry,
             self.name,
         )
-
-    def local_path(self, name: Optional[str], version: Optional[str] = None, scheme: str = DEFAULT_SCHEME) -> str:
-        """Local path of the pkg
-
-        Args:
-            name (Optional[str], optional): Name of the pkg
-            version (Optional[str], optional): Version of the pkg
-            scheme (str, optional): Scheme of the pkg. Defaults to 'fs'
-
-        Returns:
-            str: Local path of the pkg
-        """
-        out_path = Path(pkg_home()).joinpath(self.registry)
-
-        repo_parts = self.name.split("/")
-        for part in repo_parts:
-            out_path = out_path.joinpath(part)
-
-        out_path = out_path.joinpath(scheme)
-        if name:
-            out_path = out_path.joinpath(name)
-        if version:
-            out_path = out_path.joinpath(version)
-        out = str(out_path)
-
-        return out
 
     def __str__(self):
         return self.uri

@@ -4,14 +4,13 @@ import os
 from pathlib import Path
 import logging
 import shutil
-import yaml
 
-from modelos.pkg.repo import RemotePkgRepo, LocalPkgRepo, remote_pkgrepo_from_uri
+from modelos.pkg.repo import RemotePkgRepo, LocalPkgRepo
+from modelos.pkg.repo.uri import remote_pkgrepo_from_uri
 from modelos.pkg.info import PkgInfo
 from modelos.pkg.id import PkgID, NVS
 from modelos.pkg.scheme import DEFAULT_SCHEME
 from modelos.config import Config
-from modelos.util.path import list_files
 from modelos.pkg.version import hash_all, hash_files, compare_file_hashes, bump_version
 from modelos.pkg.util import copy_any, rm_any
 
@@ -28,7 +27,7 @@ class Pkg:
     def __init__(
         self,
         name: str,
-        files: Optional[Union[List[str], str]] = None,
+        dir_path: Optional[str] = None,
         description: Optional[str] = None,
         version: Optional[str] = None,
         scheme: str = DEFAULT_SCHEME,
@@ -42,7 +41,7 @@ class Pkg:
 
         Args:
             name (str): Name of the package
-            files (Optional[List[str]], optional): Files to add. Defaults to None.
+            dir_path (Optional[str], optional): Directory path with files to add. Defaults to None.
             description (Optional[str], optional): Description of the package. Defaults to None.
             version (Optional[str], optional): Version of the package. Defaults to None.
             scheme (str, optional): Scheme of the package. Defaults to 'fs'.
@@ -52,9 +51,6 @@ class Pkg:
             local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config to use to find repo. Defaults to None.
         """
-        if isinstance(files, str):
-            files = [files]
-
         self._local, self._remote = self._get_repos(local, remote, config)
 
         if self.exists(name, version, scheme, self._remote, self._local, config):
@@ -69,13 +65,13 @@ class Pkg:
             if description is None:
                 raise ValueError("'description' parameter must be set when creating a new package")
 
-            if files is None:
-                raise ValueError("'files' parameter must be set when creating a new package")
+            if dir_path is None:
+                raise ValueError("'dir_path' parameter must be set when creating a new package")
 
             pkg = self.new(
                 name,
                 description,
-                files,
+                dir_path,
                 version=version,
                 scheme=scheme,
                 labels=labels,
@@ -93,7 +89,7 @@ class Pkg:
         cls,
         name: str,
         description: str,
-        files: Union[List[str], str],
+        dir_path: str,
         version: Optional[str] = None,
         scheme: str = DEFAULT_SCHEME,
         labels: Optional[Dict[str, str]] = None,
@@ -107,7 +103,7 @@ class Pkg:
         Args:
             name (str): Name of the package
             description (str): Description of the package
-            files (List[str]): Files to add to the package
+            dir_path (str): Directory path with files to add to package
             version (Optional[str], optional): Version of the package. Defaults to auto versioning.
             scheme (str, optional): Scheme of the package. Defaults to 'fs'.
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
@@ -119,8 +115,6 @@ class Pkg:
         Returns:
             Pkg: A package
         """
-        if isinstance(files, str):
-            files = [files]
         if labels is None:
             labels = {}
 
@@ -130,13 +124,13 @@ class Pkg:
         local, remote = cls._get_repos(local, remote, config)
 
         if version is None:
-            version = hash_all(files)
+            version = hash_all(dir_path)
 
         id = remote.build_id(NVS(name, version, scheme))
-        file_hashes = hash_files(files)
+        file_hashes = hash_files(dir_path)
 
         info = PkgInfo(name, version, scheme, description, remote.uri(), labels, tags, file_hashes)
-        local.new(info, files)
+        local.new(info, dir_path)
 
         pkg = cls.from_id(id)
         return pkg
@@ -163,7 +157,7 @@ class Pkg:
         local, remote = cls._get_repos(local, remote, config)
         pkg = object.__new__(cls)
         pkg._id = id
-        out = id.local_path(local)
+        out = local.find_path(id)
         pkg._root_dir = out
         pkg._version = id.version
         pkg._remote = remote_pkgrepo_from_uri(remote.uri())
@@ -207,8 +201,9 @@ class Pkg:
             tags,
             info.file_hash,
         )
+        pth = local.find_path(self._id)
 
-        remote.push(info, files=local.repo_dir)
+        remote.push(info, files=pth)
 
         return None
 
@@ -253,8 +248,7 @@ class Pkg:
         else:
             id = remote.parse(uri)
 
-        out = id.local_path(local)
-
+        out = local.find_path(id)
         if os.path.exists(out):
             if force:
                 shutil.rmtree(out)
@@ -262,7 +256,7 @@ class Pkg:
                 logging.info("pkg already exists locally")
                 return cls.from_id(id)
 
-        remote.pull(id.name, id.version)
+        remote.pull(id.name, id.version, out, id.scheme)
         logging.info(f"pulled pkg '{name}.{version}' to '{out}'")
 
         return cls.from_id(id)
@@ -458,7 +452,7 @@ class Pkg:
         Returns:
             str: A SHA256 version hash
         """
-        return hash_all(self.all_files(relative=False))
+        return hash_all(self._root_dir)
 
     def latest(
         self,
@@ -507,18 +501,16 @@ class Pkg:
         current_info = self.info()
         if version is None:
             latest = self.latest()
-            print("got latest: ", latest)
             if not latest:
                 version = "v0.1.0"
-                current_hashes = hash_files(self.all_files(relative=False))
+                current_hashes = hash_files(self._root_dir)
                 current_info.file_hash = current_hashes
             else:
                 uri = remote.build_uri(self._id)
                 latest_manifest = self.manifest(uri)
-                print("latest manifest: ", latest_manifest.__dict__)
-                current_hashes = hash_files(self.all_files(relative=False))
+                current_hashes = hash_files(self._root_dir)
                 latest_hashes = latest_manifest.file_hash
-                version_bump = compare_file_hashes(current_hashes, latest_hashes)
+                version_bump = compare_file_hashes(latest_hashes, current_hashes)
                 current_info.file_hash = current_hashes
 
                 version = bump_version(latest, version_bump)
@@ -532,12 +524,12 @@ class Pkg:
         if tags is not None:
             current_info.tags = tags
 
-        old_path = self._id.local_path(local)
+        old_path = local.find_path(self._id)
         self._id.version = version
-        os.rename(old_path, self._id.local_path(local))
+        os.rename(old_path, local.find_path(self._id))
 
-        current_info.write_local(self._id)
-        self._root_dir = self._id.local_path(local)
+        local.write_info(current_info)
+        self._root_dir = local.find_path(self._id)
 
         if push:
             self.push(current_info.labels, current_info.tags, remote, local, config)
@@ -556,15 +548,7 @@ class Pkg:
 
     def show(self) -> None:
         """Show the package"""
-
-        info = self.info().__dict__
-        info.pop("file_hash")
-
-        print("---")
-        print(yaml.dump(info))
-        print("contents: >")
-        list_files(self._id.local_path(self._local))
-        print("")
+        self._local.show(self._id)
 
     @classmethod
     def describe(
@@ -577,9 +561,12 @@ class Pkg:
 
         Args:
             uri (str): URI to describe
+            remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
+            config (Optional[Config], optional): Config to use. Defaults to None.
         """
-        info = cls.manifest(uri, remote, config)
-        info.show()
+        _, remote = cls._get_repos(remote=remote, config=config)
+        id = remote.parse(uri)
+        remote.show(id)
         return
 
     @classmethod
@@ -601,7 +588,7 @@ class Pkg:
         """
         _, remote = cls._get_repos(remote=remote, config=config)
         id = remote.parse(uri)
-        return remote.info(id.name, id.version)
+        return remote.info(id.name, id.version, id.scheme)
 
     def clean(
         self,
@@ -693,12 +680,6 @@ class Pkg:
         return local, remote
 
     @classmethod
-    def _pkg_local_dir(cls, id: PkgID, local: LocalPkgRepo) -> Path:
-        pkg_path = id.local_path(local)
-        verdir = Path(pkg_path).joinpath(".mdl")
-        return verdir
-
-    @classmethod
     def _latest(
         cls,
         name: str,
@@ -711,7 +692,7 @@ class Pkg:
 
 
 def push(
-    files: Union[List[str], str],
+    dir_path: str,
     uri: str,
     description: str,
     labels: Optional[Dict[str, str]] = None,
@@ -720,7 +701,7 @@ def push(
     """Push a package
 
     Args:
-        files (str): Local filepath(s) to push
+        dir_path (str): Local directory filepath to push
         uri (str): URI to push to
         description (str): Description of the package
         labels(Dict[str, str], optional): Labels for the package
@@ -731,7 +712,7 @@ def push(
     """
     repo = remote_pkgrepo_from_uri(uri)
     id = repo.parse(uri)
-    pkg = Pkg(id.name, files, description, id.version, id.scheme, labels, tags, id.repo)
+    pkg = Pkg(id.name, dir_path, description, id.version, id.scheme, labels, tags, id.repo)
     pkg.push()
     return pkg
 

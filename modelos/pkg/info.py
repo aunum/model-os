@@ -1,16 +1,11 @@
 from __future__ import annotations
 from dataclasses import dataclass
 from typing import Dict, List, Type
-from pathlib import Path
-import os
-import yaml
-import json
-from copy import deepcopy
 
 from docker_image import reference
 
 from modelos.pkg.id import PkgID
-from modelos.util.path import list_files
+from modelos.pkg.util import str_to_dict, str_to_list, dict_to_str, list_to_str
 
 
 @dataclass
@@ -21,7 +16,7 @@ class PkgInfo:
     version: str
     scheme: str
     description: str
-    repo: str
+    remote: str
     labels: Dict[str, str]
     tags: List[str]
     file_hash: Dict[str, str]
@@ -33,14 +28,15 @@ class PkgInfo:
         Returns:
             Dict[str, str]: A flat set of labels
         """
-        out = deepcopy(self.labels)
+        out = {}
         out["name"] = self.name
         out["version"] = self.version
-        out["repo"] = self.repo
+        out["remote"] = self.remote
         out["scheme"] = self.scheme
         out["description"] = self.description
-        out["tags"] = json.dumps(self.tags)
-        out["file_hash"] = json.dumps(self.file_hash)
+        out["labels"] = dict_to_str(self.labels)
+        out["tags"] = list_to_str(self.tags)
+        out["file_hash"] = dict_to_str(self.file_hash)
         out["api_version"] = self.api_version
 
         return out
@@ -58,30 +54,22 @@ class PkgInfo:
         name = flat.pop("name")
         version = flat.pop("version")
         desc = flat.pop("description")
-        repo = flat.pop("repo")
+        remote = flat.pop("remote")
         scheme = flat.pop("scheme")
-        tags = json.loads(flat.pop("tags"))
-        hashes = json.loads(flat.pop("file_hash"))
+        labels = str_to_dict(flat.pop("labels"))
+        tags = str_to_list(flat.pop("tags"))
+        hashes = str_to_dict(flat.pop("file_hash"))
         api_ver = flat.pop("api_version")
 
-        return cls(name, version, scheme, desc, repo, flat, tags, hashes, api_ver)
-
-    def write_local(self, id: PkgID) -> None:
-        """Write the pkg info to the local pkg
-
-        Args:
-            id (PkgID): ID of the pkg to write to
-        """
-        pkg_path = id.local_path()
-        metadir = Path(pkg_path).joinpath(".mdl")
-        meta_path = metadir.joinpath("./info.yaml")
-        os.makedirs(metadir, exist_ok=True)
-        with open(meta_path, "w") as f:
-            yam_map = yaml.dump(self.__dict__)
-            f.write(yam_map)
+        return cls(name, version, scheme, desc, remote, labels, tags, hashes, api_ver)
 
     def id(self) -> PkgID:
-        host, repo = reference.Reference.split_docker_domain(self.repo)
+        """ID for the info
+
+        Returns:
+            PkgID: A package ID
+        """
+        host, repo = reference.Reference.split_docker_domain(self.remote)
         return PkgID(
             self.name,
             self.version,
@@ -89,12 +77,3 @@ class PkgInfo:
             host,
             repo,
         )
-
-    def show(self):
-        print("---")
-        out = self.__dict__
-        out.pop("file_hash")
-
-        print("contents: >")
-        list_files(self.id().local_path())
-        print("")

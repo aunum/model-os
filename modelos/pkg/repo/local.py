@@ -14,6 +14,7 @@ from modelos.pkg.scheme import DEFAULT_SCHEME
 from modelos.local import pkg_home
 from modelos.config import Config
 from modelos.pkg.util import copy_any
+from modelos.util.path import list_files
 
 # In the form .mdl/pkg/<host.repo>/<scheme>/<name>/<version>/.pkg/info.yaml
 
@@ -94,10 +95,13 @@ class LocalPkgRepo:
             info (PkgInfo): Package info
             files (List[str]): Files to push
         """
+        if isinstance(files, str):
+            files = [files]
         vp = self._version_path(info.name, info.version, info.scheme)
         os.makedirs(vp, exist_ok=True)
         for fp in files:
             copy_any(fp, vp)
+        self.write_info(info)
         logging.info(f"copied files to local path {vp}")
         return
 
@@ -149,6 +153,26 @@ class LocalPkgRepo:
         """
         return f"pkg://{self.repo_dir}"
 
+    def show(self, id: PkgID) -> None:
+        """Show the pkg
+
+        Args:
+            id (PkgID): ID of the pkg
+        """
+        print("---")
+        out = self.info(id.name, id.version, id.scheme).__dict__
+        out.pop("file_hash")
+        fin = {}
+        for k, v in out.items():
+            if v:
+                fin[k] = v
+        print(yaml.dump(fin))
+
+        print("contents: >")
+        pth = self.find_path(id)
+        list_files(pth)
+        print("")
+
     def info(self, name: str, version: str, scheme: str = DEFAULT_SCHEME) -> PkgInfo:
         """Info for the pkg
 
@@ -161,11 +185,11 @@ class LocalPkgRepo:
             PkgInfo: Pkg info
         """
         ver_path = self._version_path(name, version, scheme)
-        path = Path(ver_path).joinpath(".pkg").joinpath("info.yaml")
+        path = Path(ver_path).joinpath(".mdl").joinpath("info.yaml")
 
         with open(path) as f:
             loaded = yaml.load(f.read(), Loader=yaml.FullLoader)
-            return PkgInfo(**loaded)
+            return PkgInfo.from_flat(loaded)
 
     def latest(self, name: str, scheme: str = DEFAULT_SCHEME) -> Optional[str]:
         """Latest release
@@ -225,6 +249,8 @@ class LocalPkgRepo:
         """
         pkgs: List[PkgID] = []
         scheme_path = self._scheme_path(scheme)
+        if not os.path.exists(scheme_path):
+            return []
         for name in os.listdir(scheme_path):
             for version in os.listdir(self._name_path(name, scheme)):
                 pkgs.append(PkgID(name, version, scheme, self.host, self.repo))
@@ -276,6 +302,21 @@ class LocalPkgRepo:
             PkgID: A PkgID
         """
         return PkgID(nvs.name, nvs.version, nvs.scheme, self.host, self.repo)
+
+    def write_info(self, info: PkgInfo) -> None:
+        """Write the pkg info to the local pkg
+
+        Args:
+            id (PkgID): ID of the pkg to write to
+        """
+
+        pkg_path = self.find_path(info.id())
+        metadir = Path(pkg_path).joinpath(".mdl")
+        meta_path = metadir.joinpath("./info.yaml")
+        os.makedirs(metadir, exist_ok=True)
+        with open(meta_path, "w") as f:
+            yam_map = yaml.dump(info.flat_labels())
+            f.write(yam_map)
 
     def _repo_dir_name(self, repo: str) -> str:
         return repo.replace("/", ".")

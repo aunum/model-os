@@ -1,5 +1,5 @@
 import os
-from typing import List, Dict
+from typing import List, Dict, Union
 import hashlib
 import logging
 from enum import Enum
@@ -22,20 +22,20 @@ def compare_file_hashes(current: Dict[str, str], new: Dict[str, str]) -> Version
     """Compare file hashes
 
     Args:
-        current (Dict[str, str]): Current file hashes
+        current (Dict[str, str]): Current release file hashes
         new (Dict[str, str]): New file hashes
 
     Returns:
         VersionBump: Whether to version bump
     """
     bump = VersionBump.NONE
-    for fp, hash in current.items():
-        if fp not in new:
-            if bump.value > VersionBump.MINOR.value:
+    for fp, hash in new.items():
+        if fp not in current:
+            if bump.value < VersionBump.MINOR.value:
                 bump = VersionBump.MINOR
         else:
-            new_hash = new[fp]
-            if hash != new_hash:
+            current_hash = current[fp]
+            if hash != current_hash:
                 bump = VersionBump.MAJOR
     return bump
 
@@ -55,15 +55,18 @@ def hash_file(fp: str) -> str:
     return hash.hexdigest()[:VERSION_HASH_LENGTH]
 
 
-def hash_files(files: List[str]) -> Dict[str, str]:
+def hash_files(files: Union[List[str], str]) -> Dict[str, str]:
     """Hash all the given files
 
     Args:
-        files (List[str]): Files to hash
+        files (Union[List[str], str]): Files to hash
 
     Returns:
         Dict[str, str]: A map of filepath to hash
     """
+    if isinstance(files, str):
+        files = [files]
+
     file_hash = {}
     for fp in files:
         if not os.path.exists(fp):
@@ -76,7 +79,7 @@ def hash_files(files: List[str]) -> Dict[str, str]:
                     continue
                 for file_name in files:
                     rel_dir = os.path.relpath(dir_, fp)
-                    rel_file = os.path.join(rel_dir, file_name)
+                    rel_file = os.path.normpath(os.path.join(rel_dir, file_name))
                     file_set.add(rel_file)
 
                     pth = os.path.join(dir_, file_name)
@@ -93,15 +96,17 @@ def hash_files(files: List[str]) -> Dict[str, str]:
     return file_hash
 
 
-def hash_all(files: List[str]) -> str:
+def hash_all(files: Union[List[str], str]) -> str:
     """Hash all the given files together
 
     Args:
-        files (List[str]): Files to hash
+        files (Union[List[str], str]): Files to hash
 
     Returns:
         str: A SHA256 hash
     """
+    if isinstance(files, str):
+        files = [files]
     hash = hashlib.new("sha256")
     norm_files = []
     for fp in files:
@@ -152,8 +157,8 @@ def bump_version(version: str, bump: VersionBump) -> str:
     elif bump == VersionBump.PATCH:
         info = info.bump_patch()
     elif bump == VersionBump.MINOR:
-        info = info.bump_patch()
+        info = info.bump_minor()
     elif bump == VersionBump.MAJOR:
-        info = info.bump_major
+        info = info.bump_major()
 
     return f"v{str(info)}"
