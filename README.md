@@ -9,9 +9,9 @@ pip install modelos
 
 ModelOS requires and OCI compliant image registry. This can be set using any of:
 
-* `$MDL_IMAGE_REPO` env var
 * `tool.modelos.image_repo` in `pyproject.toml`
 * `image_repo` in `mdl.yaml` file at project root
+* `$MDL_IMAGE_REPO` env var
 * `image_repo` function parameters
 
 ModelOS requires a Kubernetes cluster >= 1.22.0 and will use your current kubeconfig context.
@@ -143,6 +143,7 @@ ham.bake(temp=400)
 An example working project can be found at https://github.com/pbarker/kvd
 
 ## Packages
+
 Packages are versioned filesystems
 
 ```python
@@ -160,7 +161,7 @@ pkg.push()
 # List files in the package
 files = pkg.ls()
 
-# open a file in the package
+# Open a file in the package
 with pkg.open("./foo.yaml") as f:
     b = f.read()
 
@@ -173,27 +174,26 @@ assert pkg.latest() == "v0.0.1"
 # Delete the package
 pkg.delete()
 
-# Describe a remote package
+# Describe a remote package from its uri
 info = Pkg.describe("acme.org/ml-project:pkg.fs.bar.v1.2.3")
 
 # Use a remote package
 bar_pkg = Pkg("bar", version="v1.2.3", remote="acme.org/ml-project")
 
 # Clean packages
-clean(remote, name, releases=True)
+clean(remote, name)
 ```
 
 See the [tests](./tests/pkg/pkg_test.py) for more examples
 
 ## Roadmap
 
-- [ ] Class methods
+- [ ] Releasing
 - [ ] Properties
 - [ ] Packages
 - [ ] Environments
 - [ ] Runtimes
 - [ ] Extension objects
-- [ ] Releasing
 - [ ] Finding / indexing
 - [ ] Docs / landing
 - [ ] UI / CLI

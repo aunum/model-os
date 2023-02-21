@@ -7,11 +7,11 @@ from modelos.virtual.container.id import ImageID
 
 @dataclass
 class NVS:
-    """Name, version, scheme of the pkg"""
+    """Name, version, scheme of the environment"""
 
     name: str
     version: str
-    scheme: str = "fs"
+    scheme: str = "py"
 
     @classmethod
     def parse(cls, s: str) -> NVS:
@@ -25,8 +25,8 @@ class NVS:
         """
         tag_split = s.split(".")
 
-        if tag_split[0] != "pkg":
-            raise ValueError(f"namever '{s}' is not a package")
+        if tag_split[0] != "env":
+            raise ValueError(f"namever '{s}' is not a environment")
 
         scheme = tag_split[1]
         name = tag_split[2]
@@ -37,11 +37,11 @@ class NVS:
         return NVS(name, version, scheme)
 
     def __str__(self):
-        return f"pkg.{self.scheme}.{self.name}.{self.version}"
+        return f"env.{self.scheme}.{self.name}.{self.version}"
 
 
-class PkgID:
-    """Package ID"""
+class EnvID:
+    """Environment ID"""
 
     scheme: str
     name: str
@@ -50,14 +50,14 @@ class PkgID:
     repo: str
 
     def __init__(self, name: str, version: str, scheme: str, host: str, repo: str) -> None:
-        """A Package ID
+        """An environment ID
 
         Args:
-            name (str): Name of the pkg
-            version (str): Version of the pkg
-            scheme (str): Scheme of the pkg
-            host (str): Host of the repo
-            repo (str): Repository of the pkg
+            name (str): Name of the env
+            version (str): Version of the env
+            scheme (str): Scheme of the env
+            host (str): Host of the env
+            repo (str): Repository of the env
         """
         if not re.fullmatch("([A-Za-z0-9\\-]+)", name):
             raise ValueError("Invalid name, must only be letters, numbers and hypens")

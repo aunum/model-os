@@ -84,6 +84,9 @@ from modelos.run.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
 from modelos.object.opts import OptsBuilder, Opts
 from modelos.object.kind import Kind, ObjectLocator, OBJECT_URI_ENV
 from modelos.object.id import ObjectID
+from modelos.run import Runtime, RuntimeID, Process, ProcessID, default_runtime
+from modelos.object.repo import ObjectRepo, default_object_repo
+from modelos.env import Env
 from modelos.object.encoding import (
     is_type,
     is_list,
@@ -121,17 +124,16 @@ class Client(Kind):
 
     uri: str
     artifact_labels: Dict[str, Any]
-    core_v1_api: CoreV1Api
-    rbac_v1_api: RbacAuthorizationV1Api
+    env: Env
+    runtime: Runtime
+    repo: ObjectRepo
     uid: uuid.UUID
     server_port: str
     server_addr: str
-    pod_name: str
-    pod_namespace: str
     scm: SCM
     cfg: Config
-    docker_socket: str
     hot: bool
+    process: Process
 
     def __init__(
         self,
@@ -142,10 +144,9 @@ class Client(Kind):
         hot: Optional[bool] = None,
         dev_dependencies: bool = False,
         clean: bool = True,
-        core_v1_api: Optional[CoreV1Api] = None,
-        rbac_v1_api: Optional[RbacAuthorizationV1Api] = None,
-        docker_socket: Optional[str] = None,
-        namespace: Optional[str] = None,
+        env: Optional[Env] = None,
+        runtime: Optional[Runtime] = None,
+        repo: Optional[ObjectRepo] = None,
         cfg: Optional[Config] = None,
         scm: Optional[SCM] = None,
     ) -> None:
@@ -159,33 +160,17 @@ class Client(Kind):
         if hot:
             sync_strategy = RemoteSyncStrategy.CONTAINER
 
-        if is_k8s_proc():
-            logging.info("running in kubernetes")
+        if runtime is None:
+            runtime = default_runtime()
+
+        if repo is None:
+            repo = default_object_repo()
+
+        if runtime.are_remote():
+            logging.info(f"running in remotely {runtime}")
 
         else:
-            logging.info("not running in kubernetes")
-
-        if core_v1_api is None:
-            if is_k8s_proc():
-                config.load_incluster_config()
-            else:
-                config.load_kube_config()
-
-            core_v1_api = CoreV1Api()
-        self.core_v1_api = core_v1_api
-
-        if rbac_v1_api is None:
-            if is_k8s_proc():
-                config.load_incluster_config()
-            else:
-                config.load_kube_config()
-            rbac_v1_api = RbacAuthorizationV1Api()
-        self.rbac_v1_api = rbac_v1_api
-
-        # We need to get metadata on the server by looking at the registry and pulling metadata
-        if docker_socket is None:
-            docker_socket = default_socket()
-        self.docker_socket = docker_socket
+            logging.info("not running in remotely")
 
         if cfg is None:
             cfg = Config()
@@ -195,21 +180,17 @@ class Client(Kind):
             scm = SCM()
         self.scm = scm
 
-        if namespace is None:
-            namespace = cfg.kube_namespace
-
         self.uid = uuid.uuid4()
 
-        self._patch_socket(core_v1_api)
+        runtime.connect()
 
-        if uri is not None and uri.startswith("k8s://"):
-            self.pod_namespace, self.pod_name = parse_k8s_uri(uri)
-            self.server_addr = f"http://{self.pod_name}.pod.{self.pod_namespace}.kubernetes:{SERVER_PORT}"
-            logging.info(f"connecting directly to pod {self.pod_name} in namespace {self.pod_namespace}")
+        if uri is not None and Process.is_process(uri):
+            self.process = Process.from_uri(uri)
+            logging.info(f"connecting directly to process {uri}")
             info = self.info()
             logging.info(f"server info: {info}")
             self.uri = info.uri
-            self.artifact_labels = get_img_labels(self.uri)
+            self.artifact_labels = self.process.labels()
             return
 
         if server is not None:
