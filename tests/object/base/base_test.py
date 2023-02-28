@@ -754,6 +754,8 @@ def test_enum():
 def test_client():
     # how do we create from just the client? how do we store and install?
 
+    Bar.client()
+
     from .bar_client import BarClient  # noqa
 
     bar1 = BarClient("a", 1)

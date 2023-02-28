@@ -22,19 +22,6 @@ REPO_ROOT = "/app"
 DEFAULT_PORT = 8000
 
 
-def client_hash(client_filepath: str) -> str:
-    with open(client_filepath, "rb") as f:
-        cli_file = f.read()
-
-        h = hashlib.new("sha256")
-        if len(cli_file) == 0:
-            raise ValueError("could not calculate hash of client file")
-
-        h.update(cli_file)
-        cli_hash = h.hexdigest()
-        return cli_hash
-
-
 def img_tag(
     strategy: RemoteSyncStrategy,
     scm: Optional[SCM] = None,
@@ -66,7 +53,8 @@ def img_tag(
     if client_filepath:
         # TODO: do proper client versioning
 
-        cli_hash = client_hash(client_filepath)
+        # cli_hash = client_hash(client_filepath)
+        cli_hash = "abc"
         hash = hash + "-" + cli_hash
 
     if tag_prefix:

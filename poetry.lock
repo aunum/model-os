@@ -242,7 +242,7 @@ cli = ["click (==8.1.3)", "pyyaml (==6.0)"]
 name = "dill"
 version = "0.3.6"
 description = "serialize all of python"
-category = "dev"
+category = "main"
 optional = false
 python-versions = ">=3.7"
 
@@ -1356,7 +1356,7 @@ testing = ["pytest (>=6)", "pytest-checkdocs (>=2.4)", "flake8 (<5)", "pytest-co
 [metadata]
 lock-version = "1.1"
 python-versions = "^3.8"
-content-hash = "7c347db582c0ed7f82cf19e48842ea64af92e451c75434fb7a64c88aa976a16d"
+content-hash = "165ad8dc710774286ca3850bafcf35bc93ff94fb366736d723eda920fc4011ee"
 
 [metadata.files]
 anyio = []

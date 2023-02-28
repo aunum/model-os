@@ -4,7 +4,7 @@ from enum import Enum
 import logging
 from collections.abc import Iterable, Iterator
 
-FIRST_ORDER_PRIMITIVES = [int, str, float, bool, bytes]
+FIRST_ORDER_PRIMITIVES = [int, str, float, bool, bytes, bytearray]
 
 
 def json_is_type_match(t: Optional[Union[Type, Any]], jdict: Any) -> bool:
@@ -222,7 +222,7 @@ def is_set(t: Type) -> bool:
     Returns:
         bool: Whether it is a set
     """
-    return t == set or (hasattr(t, "__origin__") and t.__origin__ == set)
+    return t in [set, frozenset] or (hasattr(t, "__origin__") and t.__origin__ in [set, frozenset])
 
 
 def is_first_order(t: Type) -> bool:

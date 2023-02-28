@@ -809,6 +809,25 @@ class Client(Kind):
         # TODO: this should roughly be a copy
         raise NotImplementedError("client already initialized")
 
+    def release(
+        self,
+        version: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        remote: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> None:
+        """Release the package
+
+        Args:
+            version (str, optional): Version of the release. Defaults to auto-versioning
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            remote (Optional[str], optional): Remote repo to use. Defaults to None.
+            config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+        """
+        pass
+
     def store(self, dev_dependencies: bool = False, clean: bool = True) -> str:  # TODO: make this a generator
         """Store the resource
 
@@ -1646,6 +1665,26 @@ class Object(Kind):
 
         return uri
 
+    @local
+    def release(
+        self,
+        version: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        remote: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> None:
+        """Release the package
+
+        Args:
+            version (str, optional): Version of the release. Defaults to auto-versioning
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            remote (Optional[str], optional): Remote repo to use. Defaults to None.
+            config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+        """
+        pass
+
     @classmethod
     def _container_server_path(cls, local_path: str) -> str:
         server_filepath = Path(local_path)
@@ -2456,12 +2495,6 @@ if __name__ == "__main__":
         imports: Dict[str, Any],
         object_module: str,
     ) -> str:
-        # print("\n------")
-        # print("bulding hint for type: ", h)
-        # print("imports: ", imports)
-        # print("module: ", object_module)
-        # print("type module: ", h.__module__)
-
         if hasattr(h, "__forward_arg__"):
             if object_module == "__main__":
                 return h.__forward_arg__

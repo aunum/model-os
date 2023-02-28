@@ -269,6 +269,26 @@ class Kind(ABC):
         pass
 
     @abstractmethod
+    def release(
+        self,
+        version: Optional[str] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        remote: Optional[str] = None,
+        config: Optional[Config] = None,
+    ) -> None:
+        """Release the package
+
+        Args:
+            version (str, optional): Version of the release. Defaults to auto-versioning
+            labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
+            tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
+            remote (Optional[str], optional): Remote repo to use. Defaults to None.
+            config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+        """
+        pass
+
+    @abstractmethod
     def health(self) -> Dict[str, Any]:
         """Health of the object
 

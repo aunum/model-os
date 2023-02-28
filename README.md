@@ -22,7 +22,7 @@ ModelOS requires a Kubernetes cluster >= 1.22.0 and will use your current kubeco
 
 ### Objects
 
-Objects are distributed Python objects.
+Objects are distributed persistent Python objects.
 
 A sample object
 ```python
@@ -160,7 +160,7 @@ pkg.push()
 # List files in the package
 files = pkg.ls()
 
-# open a file in the package
+# Open a file in the package
 with pkg.open("./foo.yaml") as f:
     b = f.read()
 
@@ -180,20 +180,19 @@ info = Pkg.describe("acme.org/ml-project:pkg.fs.bar.v1.2.3")
 bar_pkg = Pkg("bar", version="v1.2.3", remote="acme.org/ml-project")
 
 # Clean packages
-clean(remote, name, releases=True)
+clean("acme.org/ml-project", "foo")
 ```
 
 See the [tests](./tests/pkg/pkg_test.py) for more examples
 
 ## Roadmap
 
-- [ ] Class methods
+- [ ] Releasing
 - [ ] Properties
 - [ ] Packages
 - [ ] Environments
 - [ ] Runtimes
 - [ ] Extension objects
-- [ ] Releasing
 - [ ] Finding / indexing
 - [ ] Docs / landing
 - [ ] UI / CLI

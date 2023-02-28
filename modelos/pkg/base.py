@@ -494,7 +494,7 @@ class Pkg:
             remote (Optional[Union[RemotePkgRepo, str]], optional): Remote repo to use. Defaults to None.
             local (Optional[LocalPkgRepo], optional): Local repo to use. Defaults to None.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
-            puth (bool, optional): Whether to push remote as well. Defaults to True.
+            push (bool, optional): Whether to push remote as well. Defaults to True.
         """
         local, remote = self._get_inst_repos(local, remote, config)
 
