@@ -62,7 +62,7 @@ from unimport.main import Main as unimport_main
 
 from modelos.run.kube.sync import copy_file_to_pod
 from modelos.virtual.container.client import default_socket
-from modelos.env.image.build import REPO_ROOT, find_or_build_img, img_command, build_dockerfile
+from modelos.env.image.build import REPO_ROOT, img_command, build_dockerfile
 from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
     SYNC_SHA_LABEL,
@@ -74,15 +74,16 @@ from modelos.run.kube.pod_util import (
 from modelos.virtual.container.file import write_dockerfile
 from modelos.config import Config, RemoteSyncStrategy
 from modelos.scm import SCM
-from modelos.virtual.container.registry import get_img_labels, get_repo_tags
+from modelos.virtual.container.registry import get_img_labels
 from modelos.run.kube.env import is_k8s_proc
 from modelos.run.kube.auth_util import ensure_cluster_auth_resources
-from modelos.env.image.build import img_id, client_hash, path_to_module
-from modelos.object.kind import ObjectInfo
+from modelos.env.image.build import img_id, path_to_module
+from modelos.env.version import env_hash
+from modelos.object.info import ObjectInfo, ObjectArtifactInfo
 from modelos.run.client import get_client_id
 from modelos.run.kube.uri import make_py_uri, parse_k8s_uri, make_k8s_uri
 from modelos.object.opts import OptsBuilder, Opts
-from modelos.object.kind import Kind, ObjectLocator, OBJECT_URI_ENV
+from modelos.object.kind import Kind, OBJECT_URI_ENV
 from modelos.object.encoding import (
     is_type,
     is_list,
@@ -95,6 +96,16 @@ from modelos.object.encoding import (
     is_optional,
     decode_any,
 )
+from modelos.object.version import build_obj_version_hash, build_inst_version_hash
+from modelos.object.repo.uri import remote_objrepo_from_uri
+from modelos.object.version import interface_hash, calc_schema_bump, class_hash, instance_hash
+from modelos.object.id import ObjectID, Version
+from modelos.object.schema import obj_api_schema
+from modelos.pkg import Pkg, PkgID
+from modelos.util.source import get_source
+from modelos.util.version import bump_version, VersionBump, merge_bump
+from modelos.pkg.scheme.py import PYTHON_SCHEME
+from modelos.project import Project
 
 
 SERVER_PORT = "8080"
@@ -102,7 +113,10 @@ NAME_LABEL = "name"
 VERSION_LABEL = "version"
 BASES_LABEL = "bases"
 PARAMS_SCHEMA_LABEL = "params-schema"
+SCHEMA_LABEL = "schema"
 SERVER_PATH_LABEL = "server-path"
+CLIENT_PATH_LABEL = "client-path"
+HOT_LABEL = "hot"
 URI_LABEL = "uri"
 OWNER_LABEL = "owner"
 CONFIG_FILE_NAME = "config.json"
@@ -135,6 +149,7 @@ class Client(Kind):
     def __init__(
         self,
         uri: Optional[str] = None,
+        repo: Optional[str] = None,
         opts: Optional[Opts] = None,
         server: Optional[Union[Type[Object], Object]] = None,
         reuse: bool = False,
@@ -213,7 +228,9 @@ class Client(Kind):
 
         if server is not None:
             logging.info("server provided, storing class")
-            self.uri = server.store_cls(dev_dependencies=dev_dependencies, clean=clean, sync_strategy=sync_strategy)
+            self.uri = server.store_cls(
+                dev_dependencies=dev_dependencies, clean=clean, sync_strategy=sync_strategy, repo=repo
+            )
             # if isinstance(server, Object):
             #     opts = server.opts()
         elif uri is not None:
@@ -542,11 +559,11 @@ class Client(Kind):
         return OptsBuilder[Opts].build(cls)
 
     @classmethod
-    def find(cls, locator: ObjectLocator) -> List[str]:
-        """Find objects
+    def find(cls, repo: Optional[str] = None) -> List[str]:
+        """Find objects of this kind
 
         Args:
-            locator (ObjectLocator): A locator of objects
+            repo (str, optional): Repo to search, defaults to None
 
         Returns:
             List[str]: A list of object uris
@@ -555,12 +572,12 @@ class Client(Kind):
 
     @classmethod
     def versions(
-        cls: Type[C], repositories: Optional[List[str]] = None, cfg: Optional[Config] = None, compatible: bool = True
+        cls: Type[C], repo: Optional[str] = None, cfg: Optional[Config] = None, compatible: bool = True
     ) -> List[str]:
         """Find all versions of this type
 
         Args:
-            repositories (List[str], optional): Extra repositories to check
+            repo (str, optional): Repo to check
             cfg (Config, optional): Config to use
             compatible (bool, optional): Return only compatible versions. Defaults to True
 
@@ -568,36 +585,20 @@ class Client(Kind):
             List[str]: A list of versions
         """
 
-        cli_hash = ""
+        version: Optional[Version] = None
         if compatible:
-            # TODO
-            pass
+            schema = obj_api_schema(cls)
+            hash = interface_hash(schema)
+            version = Version(hash)
 
-        if repositories is None:
-            if cfg is None:
-                cfg = Config()
-            if cfg.image_repo is None:
-                raise ValueError("Must supply an image repo")
-            repositories = [cfg.image_repo]
+        if not repo:
+            repo = Config().get_image_repo()
+            if not repo:
+                raise ValueError("could not find img repo to use")
 
-        if repositories is None:
-            # TODO: use current repository
-            raise ValueError("must provide repositories to search")
+        obj_repo = remote_objrepo_from_uri(repo)
 
-        ret: List[str] = []
-        for repo_uri in repositories:
-            tags = get_repo_tags(repo_uri)
-
-            for tag in tags:
-                if f"{cls.__name__.lower().rstrip('client')}" in tag:
-                    if compatible:
-                        cli_hash_found = tag.split("-")[-1]
-                        if cli_hash_found != cli_hash:
-                            logging.info(f"bypassing {tag} as it is not compatible with client {cli_hash}")
-                            continue
-
-                    ret.append(f"{repo_uri}:{tag}")
-        return ret
+        return obj_repo.versions(cls.short_name(), version)
 
     @property
     def process_uri(self) -> str:
@@ -635,23 +636,27 @@ class Client(Kind):
             Client: A client
         """
         # TODO: add a hot copy
-        uri = self.store()
-        return self.__class__.from_uri(uri=uri)
+        id = self.store()
+        return self.__class__.from_uri(uri=str(id))
 
-    def publish(self) -> str:
-        """Publish the repo as an installable python package
+    def publish(self, version: Optional[str] = None, repo: Optional[str] = None) -> PkgID:
+        """Publish the repo as an installable package
+
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
 
         Returns:
-            str: URI for the artifact
+            PkgID: A package ID
         """
         raise NotImplementedError()
 
     @classmethod
-    def schema(cls) -> str:
+    def schema(cls) -> Dict[str, Any]:
         """Schema of the object
 
         Returns:
-            str: Object schema
+            Dict[str, Any]: Object schema
         """
         # needs to come from the image
         raise NotImplementedError()
@@ -747,7 +752,7 @@ class Client(Kind):
         clean: bool = True,
         dev_dependencies: bool = False,
         hot: bool = False,
-    ) -> str:
+    ) -> ObjectID:
         """Create an image from the server class that can be used to create servers from scratch
 
         Args:
@@ -756,7 +761,7 @@ class Client(Kind):
             hot (bool, optional): Whether to build an environment image
 
         Returns:
-            str: URI for the image
+            ObjectID: an object ID
         """
 
         raise NotImplementedError("Not yet implemented for clients")
@@ -826,17 +831,20 @@ class Client(Kind):
             remote (Optional[str], optional): Remote repo to use. Defaults to None.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
         """
-        pass
+        raise NotImplementedError()
 
-    def store(self, dev_dependencies: bool = False, clean: bool = True) -> str:  # TODO: make this a generator
+    def store(
+        self, repo: Optional[str] = None, dev_dependencies: bool = False, clean: bool = True
+    ) -> ObjectID:  # TODO: make this a generator
         """Store the resource
 
         Args:
+            repo (str, optional): Repo to use. Defaults to none.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean the generated files. Defaults to True.
 
         Returns:
-            str: URI of the saved server
+            ObjectID: ID of the Object
         """
         if not hasattr(self, "core_v1_api") or (hasattr(self, "core_v1_api") and self.core_v1_api is None):
             if is_k8s_proc():
@@ -845,6 +853,9 @@ class Client(Kind):
                 config.load_kube_config()
 
             self.core_v1_api = CoreV1Api()
+
+        if repo:
+            obj_repo = remote_objrepo_from_uri(repo)
 
         logging.info("saving server...")
 
@@ -857,11 +868,13 @@ class Client(Kind):
         # registry, repo_name = resolve_repository_name(repository)
         # docker_secret = get_dockercfg_secret_name()
 
-        cls_name = tag.split("-")[0]
-
         info = self.info()
-        version = info.version
-        uri = img_id(RemoteSyncStrategy.IMAGE, tag=f"{cls_name}-{version}")
+
+        if not repo:
+            obj_repo = remote_objrepo_from_uri(info.uri)
+
+        id = obj_repo.parse(info.uri)
+        id.version = info.version
 
         server_filepath = info.server_entrypoint
 
@@ -890,7 +903,7 @@ class Client(Kind):
 
         args = [
             f"--context={BUILD_MNT_DIR}",
-            f"--destination={uri}",
+            f"--destination={str(id)}",
             "--dockerfile=Dockerfile.mdl",
             "--ignore-path=/product_uuid",  # https://github.com/GoogleContainerTools/kaniko/issues/2164
         ]
@@ -960,8 +973,8 @@ class Client(Kind):
 
             time.sleep(1)
 
-        logging.info(f"saved object as uri: {str(uri)}")
-        return str(uri)
+        logging.info(f"saved object as uri: {str(id)}")
+        return id
 
     def __enter__(self):
         return self
@@ -1184,6 +1197,15 @@ class Object(Kind):
             return cls.__name__.removesuffix("Server").lower()
         return cls.__name__.lower()
 
+    @classmethod
+    def description(cls) -> str:
+        """Description of the object
+
+        Returns:
+            str: A description
+        """
+        return cls.__doc__ or ""
+
     @nolock
     @classmethod
     @local
@@ -1210,14 +1232,16 @@ class Object(Kind):
         Returns:
             Dict[str, Any]: Resource info
         """
-        # TODO: create info object
         server_filepath = self._server_filepath()
         if is_k8s_proc():
-            server_filepath = self._container_server_path(server_filepath)
+            server_filepath = self._container_path(server_filepath)
+
+        version = build_inst_version_hash(self)
 
         return ObjectInfo(
             name=self.name(),
-            version=self.scm.sha(),
+            version=version,
+            description=self.description(),
             env_sha=self.scm.env_sha(),
             uri=self.uri,
             server_entrypoint=server_filepath,
@@ -1241,11 +1265,11 @@ class Object(Kind):
 
     @classmethod
     @local
-    def find(cls, locator: ObjectLocator) -> List[str]:
-        """Find objects
+    def find(cls, repo: Optional[str] = None) -> List[str]:
+        """Find objects of this kind
 
         Args:
-            locator (ObjectLocator): A locator of objects
+            repo (str, optional): Repo to search, defaults to None
 
         Returns:
             List[str]: A list of object uris
@@ -1273,6 +1297,7 @@ class Object(Kind):
             ENV_SHA_LABEL: cls.scm.env_sha(),
             REPO_NAME_LABEL: cls.scm.name(),
             REPO_SHA_LABEL: cls.scm.sha(),
+            SCHEMA_LABEL: json.dumps(cls.schema()),
         }
         return base_labels
 
@@ -1375,13 +1400,60 @@ class Object(Kind):
         raise NotImplementedError()
 
     @local
-    def publish(self) -> str:
+    def publish(
+        self,
+        version: Optional[str] = None,
+        repo: Optional[str] = None,
+        config: Optional[Config] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        project: Optional[Project] = None,
+        save: bool = True,
+    ) -> PkgID:
         """Publish the repo as an installable package
 
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
+            labels (Dict[str, str], optional): Labels to use. Defaults to None
+            tags (List[str], optional): Tags to use. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            save (bool, optional): Whether to save the state of the object. Defaults to True.
+
         Returns:
-            str: URI for the artifact
+            PkgID: A package ID
         """
-        raise NotImplementedError("Not yet implemented")
+        if not repo:
+            if not config:
+                config = Config()
+            repo = config.get_pkg_repo()
+            if not repo:
+                raise ValueError("could not find pkg repo to use")
+
+        if not project:
+            project = Project()
+
+        if not version:
+            version = build_inst_version_hash(self)
+
+        if save:
+            self.save()
+
+        pkg = Pkg(
+            name=self.short_name(),
+            dir_path=project.rootpath,
+            description=self.description(),
+            version=version,
+            scheme=PYTHON_SCHEME,
+            labels=labels,
+            tags=tags,
+            remote=repo,
+            config=config,
+        )
+        pkg.push()
+
+        return pkg.id()
 
     @local
     def sync(self) -> None:
@@ -1406,17 +1478,18 @@ class Object(Kind):
         Returns:
             str: Source for the object
         """
-        raise NotImplementedError()
+        return get_source(self.__class__)
 
     @classmethod
     @local
-    def schema(cls) -> str:
+    def schema(cls) -> Dict[str, Any]:
         """Schema of the object
 
         Returns:
-            str: Object schema
+            Dict[str, Any]: Object schema
         """
-        raise NotImplementedError()
+        schema = obj_api_schema(cls._client_cls())
+        return schema
 
     @classmethod
     def _cls_package(cls) -> str:
@@ -1579,6 +1652,7 @@ class Object(Kind):
     @local
     def client(
         cls: Type[O],
+        repo: Optional[str] = None,
         clean: bool = True,
         dev_dependencies: bool = False,
         reuse: bool = True,
@@ -1588,6 +1662,7 @@ class Object(Kind):
         """Create a client of the class, which will allow for the generation of instances remotely
 
         Args:
+            repo (str, optional): Repo to use. Defaults to None.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             reuse (bool, optional): Whether to reuse existing processes. Defaults to True.
@@ -1601,6 +1676,7 @@ class Object(Kind):
         if uri is None:
             client_cls = partialcls(
                 cls._client_cls(),
+                repo=repo,
                 server=cls,
                 reuse=reuse,
                 clean=clean,
@@ -1624,72 +1700,170 @@ class Object(Kind):
     @local
     def store_cls(
         cls,
+        repo: Optional[str] = None,
         clean: bool = True,
         dev_dependencies: bool = False,
-        sync_strategy: RemoteSyncStrategy = RemoteSyncStrategy.IMAGE,
-    ) -> str:
+        hot: bool = False,
+    ) -> ObjectID:
         """Create an image from the server class that can be used to create servers from scratch
 
         Args:
+            repo (Optional[str], optional): Repo to use. Defaults to none.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
-            sync_strategy (RemoteSyncStrategy, optional): Sync strategy to use. Defaults to RemoteSyncStrategy.IMAGE.
+            hot (bool, optional): Whether to build an image for hot reloading. Defaults to false.
 
         Returns:
-            str: URI for the image
+            ObjectID: An object ID
         """
 
-        return cls._build_image(clean=clean, dev_dependencies=dev_dependencies, sync_strategy=sync_strategy)
+        return cls._build_image(clean=clean, dev_dependencies=dev_dependencies, hot=hot, repo=repo)
 
     @local
-    def store(self, dev_dependencies: bool = False, clean: bool = True) -> str:
+    def store(self, repo: Optional[str] = None, dev_dependencies: bool = False, clean: bool = True) -> ObjectID:
         """Create a server image with the saved artifact
 
         Args:
+            repo (Optional[str], optional): Repo to use. Defaults to none.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean the generated files. Defaults to True.
 
         Returns:
-            str: URI for the image
+            ObjectID: An object ID
         """
 
         self.save()
 
-        uri = self._build_image(
+        id = self._build_image(
             clean=clean,
             dev_dependencies=dev_dependencies,
-            sync_strategy=RemoteSyncStrategy.IMAGE,
+            repo=repo,
         )
         if clean:
             self.clean_artifacts()
 
-        return uri
+        return id
 
     @local
     def release(
         self,
+        repo: Optional[str] = None,
         version: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
-        remote: Optional[str] = None,
+        dev_dependencies: bool = False,
         config: Optional[Config] = None,
-    ) -> None:
+        clean: bool = True,
+    ) -> ObjectID:
         """Release the package
 
         Args:
+            repo (Optional[str], optional): Repo to use. Defaults to none.
             version (str, optional): Version of the release. Defaults to auto-versioning
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
             tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
-            remote (Optional[str], optional): Remote repo to use. Defaults to None.
+            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
+            clean (bool, optional): Whether to clean the generated files. Defaults to True.
+
+        Returns:
+            ObjectID: ID of the object
         """
-        pass
+
+        if not repo:
+            if not config:
+                config = Config()
+            repo = config.get_image_repo()
+            if not repo:
+                raise ValueError("could not find img repo to use")
+
+        obj_repo = remote_objrepo_from_uri(repo)
+        obj_schema = self.schema()
+
+        ihash = interface_hash(obj_schema)
+        clshash = class_hash(self.__class__)
+        insthash = instance_hash(self)
+        envhash = env_hash()
+
+        if not version:
+            latest = self.latest(repo)
+            version = "v0.0.1"
+            if latest:
+                info = obj_repo.info(self.short_name(), latest)
+
+                bump = VersionBump.NONE
+                if info.instance_hash != insthash:
+                    bump = merge_bump(bump, VersionBump.PATCH)
+
+                if info.class_hash != clshash:
+                    bump = VersionBump.MINOR
+
+                bump = merge_bump(bump, calc_schema_bump(info.schema, obj_schema))
+                version = bump_version(latest, bump)
+
+        server_filepath = self._server_filepath()
+        server_container_path = self._container_path(server_filepath)
+
+        info = ObjectArtifactInfo(
+            name=self.short_name(),
+            version=version,
+            host=obj_repo.host(),
+            repo=obj_repo.name(),
+            protocol=obj_repo.protocol(),
+            schema=obj_schema,
+            description=self.description(),
+            labels=labels,
+            server_entrypoint=server_container_path,
+            interface_hash=ihash,
+            class_hash=clshash,
+            instance_hash=insthash,
+            env_hash=envhash,
+            tags=tags,
+        )
+
+        self.save()
+
+        id = self._build_image(
+            labels=info.flat_labels(),
+            clean=clean,
+            dev_dependencies=dev_dependencies,
+            repo=repo,
+            version=version,
+        )
+        if clean:
+            self.clean_artifacts()
+
+        return id
 
     @classmethod
-    def _container_server_path(cls, local_path: str) -> str:
-        server_filepath = Path(local_path)
+    @local
+    def latest(cls, repo: Optional[str] = None) -> Optional[str]:
+        """Latest release
+
+        Args:
+            repo (Optional[str], optional): Repo to use. Defaults to None.
+
+        Raises:
+            ValueError: If not repo can be found
+
+        Returns:
+            Optional[str]: Latest release if present
+        """
+        if not repo:
+            repo = Config().get_image_repo()
+            if not repo:
+                raise ValueError("could not find img repo to use")
+
+        obj_repo = remote_objrepo_from_uri(repo)
+        latest = obj_repo.latest(cls.short_name())
+
+        return latest
+
+    @classmethod
+    def _container_path(cls, local_path: str) -> str:
+        path = Path(local_path)
         repo_root = Path(str(cls.scm.git_repo.working_dir))
-        root_relative = server_filepath.relative_to(repo_root)
+        root_relative = path.relative_to(repo_root)
         container_path = Path(REPO_ROOT).joinpath(root_relative)
         return str(container_path)
 
@@ -1699,57 +1873,56 @@ class Object(Kind):
         labels: Optional[Dict[str, str]] = None,
         clean: bool = True,
         dev_dependencies: bool = False,
-        sync_strategy: RemoteSyncStrategy = RemoteSyncStrategy.IMAGE,
-    ) -> str:
+        repo: Optional[str] = None,
+        hot: bool = False,
+        version: Optional[str] = None,
+    ) -> ObjectID:
         """Build a generic image for a server
 
         Args:
             labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
-            sync_strategy (RemoteSyncStrategy, optional): Sync strategy to use. Defaults to RemoteSyncStrategy.IMAGE.
+            repo (Optional[str], optional): Repo to use. Defaults to none.
+            hot (bool, optional): Whether to hot sync code. Defaults to False.
+            version (str, optional): Version to override. Defaults to None.
 
         Returns:
-            str: URI of the image
+            ObjectID: ID of the object
         """
+        if not repo:
+            repo = Config().get_image_repo()
+            if not repo:
+                raise ValueError("could not find img repo to use")
 
         # write the server file somewhere we can find it
         server_filepath = cls._write_server_file()
         client_filepath = cls._write_client_file()
-        container_path = cls._container_server_path(server_filepath)
+        server_container_path = cls._container_path(server_filepath)
+        client_container_path = cls._container_path(client_filepath)
 
         base_labels = cls.labels()
         if labels is not None:
             base_labels.update(labels)
 
-        base_labels[SERVER_PATH_LABEL] = str(container_path)
+        base_labels[SERVER_PATH_LABEL] = str(server_container_path)
+        base_labels[CLIENT_PATH_LABEL] = str(client_container_path)
 
-        if sync_strategy == RemoteSyncStrategy.IMAGE:
-            imgid = find_or_build_img(
-                sync_strategy=RemoteSyncStrategy.IMAGE,
-                command=img_command(str(container_path)),
-                tag_prefix=f"{cls.short_name().lower()}-",
-                labels=base_labels,
-                dev_dependencies=dev_dependencies,
-                clean=clean,
-                client_filepath=client_filepath,
-            )
-        elif sync_strategy == RemoteSyncStrategy.CONTAINER:
-            imgid = find_or_build_img(
-                sync_strategy=RemoteSyncStrategy.IMAGE,  # TODO: fix this at the source, we want to copy all files now
-                command=img_command(str(container_path)),
-                tag=f"{cls.short_name().lower()}-env-{cls.scm.env_sha()}",
-                labels=base_labels,
-                dev_dependencies=dev_dependencies,
-                clean=clean,
-            )
-        else:
-            raise ValueError("unkown sync strategy: ", sync_strategy)
+        if hot:
+            base_labels[HOT_LABEL] = "true"
+
+        if not version:
+            version = build_obj_version_hash(cls)
+
+        obj_repo = remote_objrepo_from_uri(repo)
+        cmd = img_command(str(server_container_path))
+
+        id = obj_repo.find_or_build(cls.short_name(), version, cmd, dev_dependencies, clean, base_labels)
 
         if clean:
             os.remove(server_filepath)
 
-        return str(imgid)
+        return id
 
     @classmethod
     @local
@@ -1808,12 +1981,12 @@ class Object(Kind):
     @classmethod
     @local
     def versions(
-        cls: Type[O], repositories: Optional[List[str]] = None, cfg: Optional[Config] = None, compatible: bool = True
+        cls: Type[O], repo: Optional[str] = None, cfg: Optional[Config] = None, compatible: bool = True
     ) -> List[str]:
         """Find all versions of this type
 
         Args:
-            repositories (List[str], optional): extra repositories to check. Defaults to None
+            repo (str, optional): Repo to check. Defaults to None
             cfg (Config, optional): Config to use. Defaults to None
             compatible (bool, optional): Whether to only return compatible resources. Defaults to True
 
@@ -1821,35 +1994,20 @@ class Object(Kind):
             List[str]: A list of versions
         """
 
-        cli_hash = ""
+        version: Optional[Version] = None
         if compatible:
-            client_filepath = cls._write_client_file()
-            cli_hash = client_hash(client_filepath)
+            schema = obj_api_schema(cls)
+            hash = interface_hash(schema)
+            version = Version(hash)
 
-        if repositories is None:
-            if cfg is None:
-                cfg = Config()
-            if cfg.image_repo is None:
-                raise ValueError("must supply an image repo")
-            repositories = [cfg.image_repo]
+        if not repo:
+            repo = Config().get_image_repo()
+            if not repo:
+                raise ValueError("could not find img repo to use")
 
-        if repositories is None:
-            # TODO: use current repository
-            raise ValueError("must provide repositories to search")
+        obj_repo = remote_objrepo_from_uri(repo)
 
-        ret: List[str] = []
-        for repo_uri in repositories:
-            tags = get_repo_tags(repo_uri)
-
-            for tag in tags:
-                if f"{cls.__name__.lower()}" in tag:
-                    if compatible:
-                        cli_hash_found = tag.split("-")[-1]
-                        if cli_hash_found != cli_hash:
-                            logging.info(f"bypassing {tag} as it is not compatible with client {cli_hash}")
-                            continue
-                    ret.append(f"{repo_uri}:{tag}")
-        return ret
+        return obj_repo.versions(cls.short_name(), version)
 
     def _get_class_that_defined_method(fn):
         if inspect.ismethod(fn):

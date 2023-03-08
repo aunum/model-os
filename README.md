@@ -5,16 +5,10 @@ An operating system for machine learning
 ```
 pip install modelos
 ```
-### Configuring
 
-ModelOS requires and OCI compliant image registry. This can be set using any of:
+## Docs 
 
-* `$MDL_IMAGE_REPO` env var
-* `tool.modelos.image_repo` in `pyproject.toml`
-* `image_repo` in `mdl.yaml` file at project root
-* `image_repo` function parameters
-
-ModelOS requires a Kubernetes cluster >= 1.22.0 and will use your current kubeconfig context.
+To understand the direction of the project see [our slides](https://docs.google.com/presentation/d/1U51kZ2KyljTgodxCfSrJDlEvKQQKLWMjFYaY0XI5c3M/edit?usp=sharing)
 
 ## Usage
 
@@ -28,119 +22,162 @@ A sample object
 ```python
 from modelos import Object
 
-class Ham(Object):
+class Foo(Object):
 
-    temp: int
-    weight: int
-    brand: str
+    name: str
+    amount: int
 
-    def __init__(self, weight: int, brand: str) -> None:
-        self.weight = weight
-        self.brand = brand
+    def __init__(self, name: str, amount: int) -> None:
+        self.name = name
+        self.amount = amount
 
-    def bake(self, temp: int) -> None:
-        self.temp = temp
+    def add(amount: int) -> None:
+        self.amount += amount
 
-    def cut(self, weight: int) -> int:
-        self.weight = self.weight - weight
-        return self.weight
+    def echo(s: str) -> str:
+        return f"hello {s}"
+
+    def stream(s: str) -> Iterable[str]:
+        for i in range(self.amount):
+            yield f"hello {s} {i}"
 
 ```
 
 ModelOS objects work just like Python objects with some extra capabilities.
 
-### Developing Objects
+#### Developing Objects
 Develop on the object remotely
 ```python
 # Create a client which can be used to generate remote instances
-HamClient = Ham.client(hot=True)
+FooClient = Foo.client(hot=True, repo="acme.org/ml-project")
 
 # Creates a remote instance within the context then deletes it
-with HamClient(weight=12, brand="black forest") as ham:
-    ham.bake(temp=340)
+with FooClient(name="bar", amount=7) as foo:
+    foo.add(6)
 
-    # Store the object
-    uri = ham.store()
+    for s in foo.stream("baz"):
+        print(s)
+
+    # Store the object with its updated state
+    uri = foo.store()
 ```
-Example develop URI: `acme.org/ml-project:obj.ham.f2oij-2oijr-f8g2n`
+Example develop URI: `acme.org/ml-project:obj.foo.f2oij-2okzr-f8g2n`
 
 
-### Releasing Objects
+#### Releasing Objects
 Release the object to be used by others. This creates a semver for the object and client/server packages
 ```python
-HamClient = Ham.client()
+FooClient = Foo.client()
 
 # Creates a remote instance within the context then deletes it
-with HamClient(weight=14, brand="honey baked") as ham:
-    ham.bake(temp=340)
+with FooClient(name="bar", amount=7) as foo:
+    foo.add(2)
 
-    uri = ham.release()
+    # release version is automatically calculated based on object state
+    uri = foo.release()
 ```
-Example release URI: `acme.org/ml-project:obj.ham.v1.2.3`   
+Example release URI: `acme.org/ml-project:obj.foo.v1.2.3`   
 
-#### Versioning scheme
-
-__v1__: interface version   
-__v1.2__: class version   
-__v1.2.3__: instance version   
-
-
-### Using Objects
+#### Using Objects
 Install a client from a release and use it to generate a remote instance
 ```python
-from modelos import install
+from modelos import install_client
 
-install("acme.org/ml-project:obj.ham.v1")
+# Install the latest client within a major version
+install_client("acme.org/ml-project:obj.foo.v1")
 
-from ml_project.ham.v1 import HamClient
+from ml_project.foo.v1 import FooClient
 
 # Use the latest release
-with HamClient(weight=10) as ham:
-    ham.bake(temp=320)
+with FooClient(amount=10) as foo:
+    foo.echo("bar")
 
 # Specify a class release version
-HamClient.version = "v1.2"
+FooClient.version = "v1.2"
 
-with HamClient(weight=10) as ham:
-    ham.bake(temp=320)
+with FooClient(amount=10) as foo:
+    foo.echo("bar")
 
 # Specify an instance version
-with HamClient.instance("v1.2.3") as ham:
-    ham.bake(temp=320)
+with FooClient.instance("v1.2.3") as foo:
+    foo.echo("bar")
 ```
 
 Install a class and use locally or remotely
 ```python
 from modelos import install
 
-install("acme.org/ml-project:obj.ham.v1.2")
+install("acme.org/ml-project:obj.foo.v1.2")
 
-from ml_project.ham.v1_2 import Ham
+from ml_project.foo.v1_2 import Foo
 
 # locally
-ham = Ham(weight=12)
-ham.bake(temp=300)
+foo = Foo(amount=12)
+foo.add(5)
 
 # remotely
-with Ham.client()(weight=10) as ham:
-    ham.bake(temp=320)
+with Foo.client()(amount=10) as foo:
+    foo.echo("bar")
 ```
 
 Install an instance and use it locally
 ```python
 from modelos import install
 
-install("acme.org/ml-project:obj.ham.v1.2.3")
+install("acme.org/ml-project:obj.foo.v1.2.3")
 
-from ml_project.ham.v1_2_3 import Ham
+from ml_project.foo.v1_2_3 import Foo
 
 # load the object instance state
-ham = Ham.from_env()
+foo = Foo.from_env()
 
-ham.bake(temp=400)
+foo.echo("bar")
 ```
 
 An example working project can be found at https://github.com/pbarker/kvd
+
+#### Examples
+
+A text classifier
+```python
+from modelos import Object
+from simpletransformers.classification import ClassificationModel, ClassificationArgs
+import pandas as pd
+
+
+class TextClassifier(Object):
+    model: ClassificationModel
+
+    def __init__(self, model_args: ClassificationArgs) -> None:
+        self.model = ClassificationModel("bert", "bert-base-cased", num_labels=3, args=model_args)
+
+    def train(self, df: pd.DataFrame) -> None:
+        self.model.train_model(df)
+
+    def predict(self, txt: str) -> List[int]:
+        preds, _ = self.model.predict([txt])
+        return preds
+
+
+TextClassifierClient = TextClassifier.client(hot=True)
+model_args = ClassificationArgs(num_train_epochs=1)
+
+with TextClassifierClient(model_args) as model:
+    train_data = [
+        ["Aragorn was the heir of Isildur", 1],
+        ["Frodo was the heir of Isildur", 0],
+    ]
+    train_df = pd.DataFrame(train_data)
+    train_df.columns = ["text", "labels"]
+
+    model.train(train_df)
+    uri = model.store("acme.org/ml-project")
+
+model = TextClassifier.from_uri(uri)
+preds = model.predict("Merrry is stronger than Pippin")
+```
+
+See more [examples in docs](./examples/)
 
 ## Packages
 Packages are versioned filesystems
@@ -199,3 +236,4 @@ See the [tests](./tests/pkg/pkg_test.py) for more examples
 - [ ] Schema
 - [ ] Bi-directional streaming
 - [ ] Smarter versioning
+- [ ] Checkpoint API

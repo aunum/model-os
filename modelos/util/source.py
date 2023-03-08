@@ -1,11 +1,11 @@
-from typing import Any
+from typing import Type
 import inspect
 
 from .notebook import get_notebook_class_code, is_notebook
 
 
-def get_source(obj: Any) -> str:
-    """Get source for an object in a robust way
+def get_source(cls: Type) -> str:
+    """Get source for an object class in a robust way
 
     Args:
         obj (Any): Object to get source for
@@ -14,6 +14,6 @@ def get_source(obj: Any) -> str:
         str: Source code
     """
     if is_notebook():
-        return get_notebook_class_code(obj)
+        return get_notebook_class_code(cls)
 
-    return inspect.getsource(obj)
+    return inspect.getsource(cls)

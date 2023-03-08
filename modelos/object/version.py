@@ -2,22 +2,15 @@ import hashlib
 import yaml
 import logging
 import json
-from enum import Enum
-from typing import Any, get_type_hints
+from typing import Any, Type, get_type_hints
+
 from .encoding import encode_any
+from .schema import obj_api_schema
 from modelos.project import Project
 from modelos.util.source import get_source
+from modelos.util.version import VersionBump, merge_bump
 
 VERSION_SHA_LENGTH = 5
-
-
-class VersionBump(Enum):
-    """The version bump needed"""
-
-    NONE = 0
-    PATCH = 1
-    MINOR = 2
-    MAJOR = 3
 
 
 def interface_hash(schema: dict) -> str:
@@ -38,12 +31,6 @@ def interface_hash(schema: dict) -> str:
 
 
 FIRST_ORDER_SCHEMA = ["string", "number", "boolean"]
-
-
-def _merge_bump(old_bump: VersionBump, new_bump: VersionBump) -> VersionBump:
-    if new_bump.value > old_bump.value:
-        return new_bump
-    return old_bump
 
 
 def calc_component_bump(
@@ -87,7 +74,7 @@ def calc_component_bump(
     if "oneOf" in new_schema:
         if "oneOf" not in old_schema:
             logging.info(f"new schema is a oneOf '{action} {path} {parent}' old schema is not, bumping patch version")
-            current_bump = _merge_bump(current_bump, VersionBump.PATCH)
+            current_bump = merge_bump(current_bump, VersionBump.PATCH)
 
     old_type = old_schema["type"]
     new_type = new_schema["type"]
@@ -115,7 +102,7 @@ def calc_component_bump(
                     return VersionBump.MAJOR
 
                 new_sch = new_props[old_name]
-                current_bump = _merge_bump(
+                current_bump = merge_bump(
                     current_bump,
                     calc_component_bump(old_sch, new_sch, path, action, parent + f".{old_name}", current_bump),
                 )
@@ -128,10 +115,10 @@ def calc_component_bump(
                         f"added property '{action} {path} {parent}.{new_name}'"
                         + " found in new schema, bumping minor version"
                     )
-                    current_bump = _merge_bump(current_bump, VersionBump.MINOR)
+                    current_bump = merge_bump(current_bump, VersionBump.MINOR)
 
                 old_sch = old_props[new_name]
-                current_bump = _merge_bump(
+                current_bump = merge_bump(
                     current_bump,
                     calc_component_bump(old_sch, new_sch, path, action, parent + f".{new_name}", current_bump),
                 )
@@ -144,7 +131,7 @@ def calc_component_bump(
                     f"required properties on old schema '{action} {path} {parent}'"
                     + " not found in new schema, bumping patch version"
                 )
-                current_bump = _merge_bump(current_bump, VersionBump.PATCH)
+                current_bump = merge_bump(current_bump, VersionBump.PATCH)
 
             for req in old_schema["required"]:
                 if req not in new_schema["required"]:
@@ -152,7 +139,7 @@ def calc_component_bump(
                         f"required property '{action} {path} {parent}.{req}'"
                         + " in old schema and not found in new schema, bumping patch version"
                     )
-                    current_bump = _merge_bump(current_bump, VersionBump.PATCH)
+                    current_bump = merge_bump(current_bump, VersionBump.PATCH)
 
         if "required" in new_schema:
             if "required" not in old_schema:
@@ -177,7 +164,7 @@ def calc_component_bump(
                 )
                 return VersionBump.MAJOR
 
-            current_bump = _merge_bump(
+            current_bump = merge_bump(
                 current_bump,
                 calc_component_bump(
                     old_schema["additionalProperties"],
@@ -214,7 +201,7 @@ def calc_component_bump(
                 )
                 return VersionBump.MAJOR
 
-            current_bump = _merge_bump(
+            current_bump = merge_bump(
                 current_bump,
                 calc_component_bump(
                     old_schema["items"], new_schema["items"], path, action, parent + ".items", current_bump
@@ -240,7 +227,7 @@ def calc_component_bump(
 
             for i, old_item in enumerate(old_schema["prefixItems"]):
                 new_item = new_schema["prefixItems"][i]
-                current_bump = _merge_bump(
+                current_bump = merge_bump(
                     current_bump,
                     calc_component_bump(old_item, new_item, path, action, parent + ".prefixItems", current_bump),
                 )
@@ -302,11 +289,11 @@ def calc_schema_bump(old_schema: dict, new_schema: dict) -> VersionBump:
     return bump
 
 
-def object_hash(obj: Any) -> str:
-    """Generate a hash for the object
+def class_hash(cls: Type) -> str:
+    """Generate a hash for the object class
 
     Args:
-        obj (Any): The object
+        cls (Any): The object class
 
     Returns:
         str: A SHA256 hash
@@ -317,7 +304,7 @@ def object_hash(obj: Any) -> str:
     project = Project()
     env = project.env_code()
 
-    src = get_source(obj)
+    src = get_source(cls)
 
     h = hashlib.new("sha256")
     h.update(src.encode())
@@ -349,3 +336,35 @@ def instance_hash(instance: Any) -> str:
     h.update(s.encode())
 
     return h.hexdigest()[:VERSION_SHA_LENGTH]
+
+
+def build_obj_version_hash(cls: Type) -> str:
+    """Build a version hash for the object class
+
+    Args:
+        obj (Any): Object to build hash for
+
+    Returns:
+        str: Object hash {interface}-{class}
+    """
+    schema = obj_api_schema(cls)
+    iface_hash = interface_hash(schema)
+
+    obj_hash = class_hash(cls)
+
+    return f"{iface_hash}-{obj_hash}"
+
+
+def build_inst_version_hash(obj: Any) -> str:
+    """Build a version hash for the object instance
+
+    Args:
+        obj (Any): Object to build hash for
+
+    Returns:
+        str: Object hash {interface}-{class}-{instance}
+    """
+    obj_hash = build_obj_version_hash(obj.__class__)
+    inst_hash = instance_hash(obj)
+
+    return f"{obj_hash}-{inst_hash}"

@@ -134,12 +134,17 @@ def is_git_root(current_path: Optional[str] = None, pattern: Optional[str] = Non
     return False
 
 
-def has_mdl_repo(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
+def mdl_path(current_path: Optional[str] = None, pattern: Optional[str] = None) -> str:
     path = detect(current_path, pattern)
     if path is None:
-        return False
+        raise ValueError("could not detect root path")
 
     config_path = os.path.join(path, "mdl.yaml")
+    return config_path
+
+
+def has_mdl_file(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
+    config_path = mdl_path(current_path, pattern)
 
     if os.path.exists(config_path):
         return True
@@ -147,15 +152,33 @@ def has_mdl_repo(current_path: Optional[str] = None, pattern: Optional[str] = No
     return False
 
 
-def load_mdl_repo(current_path: Optional[str] = None, pattern: Optional[str] = None) -> Dict[str, Any]:
-    path = detect(current_path, pattern)
-    if path is None:
-        raise ValueError("could not find root path")
-
-    config_path = os.path.join(path, "mdl.yaml")
+def load_mdl_file(current_path: Optional[str] = None, pattern: Optional[str] = None) -> Dict[str, Any]:
+    config_path = mdl_path(current_path, pattern)
 
     with open(config_path, "r") as stream:
         return yaml.safe_load(stream)
+
+
+def write_mdl_file(data: Dict[str, Any], current_path: Optional[str] = None, pattern: Optional[str] = None) -> None:
+    config_path = mdl_path(current_path, pattern)
+
+    with open(config_path, "w") as f:
+        s = yaml.dump(data)
+        f.write(s)
+
+
+def patch_mdl_file(data: Dict[str, Any], current_path: Optional[str] = None, pattern: Optional[str] = None) -> None:
+    loaded = {}
+
+    try:
+        loaded = load_mdl_file(current_path, pattern)
+    except Exception:
+        pass
+
+    for k, v in data.items():
+        loaded[k] = v
+
+    return write_mdl_file(loaded, current_path, pattern)
 
 
 def load_conda_yaml(current_path: Optional[str] = None, pattern: Optional[str] = None) -> Dict[str, Any]:

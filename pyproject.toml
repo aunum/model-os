@@ -34,6 +34,7 @@ pylint = "^2.16.1"
 types-PyYAML = "^6.0.12"
 types-six = "^1.16.21"
 ipykernel = "^6.21.1"
+simpletransformers = "^0.63.9"
 
 [tool.modelos]
 image_repo = "aunum/mdl-test"

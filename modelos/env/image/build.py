@@ -3,7 +3,6 @@ import os
 import logging
 import sys
 import subprocess
-import hashlib
 
 from docker import APIClient
 from rich.progress import Progress, TaskID
@@ -560,7 +559,7 @@ def build_img(
     return image_id
 
 
-def push_img(id: ImageID, docker_socket: Optional[str] = None) -> None:
+def push_img(id: ImageID, docker_socket: Optional[str] = None, api_client: Optional[APIClient] = None) -> None:
     """Push image
 
     Args:
@@ -571,7 +570,8 @@ def push_img(id: ImageID, docker_socket: Optional[str] = None) -> None:
     if docker_socket is None:
         docker_socket = default_socket()
 
-    client = APIClient(base_url=docker_socket)
+    if api_client is None:
+        client = APIClient(base_url=docker_socket)
 
     logging.info("pushing docker image")
 
@@ -714,8 +714,3 @@ def path_to_module(path: str, project_root: Optional[str] = None) -> str:
     mod_path = mod_path.replace("/", ".")
 
     return mod_path
-
-
-def cache_img() -> None:
-    # https://github.com/senthilrch/kube-fledged
-    return

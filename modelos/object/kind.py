@@ -1,38 +1,16 @@
 from __future__ import annotations
 from abc import ABC, abstractmethod, abstractproperty
-from dataclasses import dataclass
 from typing import Dict, Iterable, List, Any, Optional, Type, TypeVar
 
 from modelos.config import Config
 from modelos.object.opts import Opts
+from modelos.pkg import PkgID
+from .id import ObjectID
+from .info import ObjectInfo
 
 OBJECT_URI_ENV = "OBJECT_URI"
 
 K = TypeVar("K", bound="Kind")
-
-
-@dataclass
-class ObjectInfo:
-    name: str
-    version: str
-    env_sha: str
-    uri: str
-    server_entrypoint: str
-    locked: bool
-    ext: Optional[Dict[str, str]] = None
-
-
-class ObjectLocator(ABC):
-    """An object locator locates objects"""
-
-    @abstractmethod
-    def locate(self) -> List[str]:
-        """Locate the object
-
-        Returns:
-            List[str]: A list of object URIs
-        """
-        pass
 
 
 class Kind(ABC):
@@ -55,6 +33,16 @@ class Kind(ABC):
 
         Returns:
             str: A short name
+        """
+        pass
+
+    @classmethod
+    @abstractmethod
+    def description(cls) -> str:
+        """Description of the object
+
+        Returns:
+            str: A description
         """
         pass
 
@@ -108,7 +96,7 @@ class Kind(ABC):
 
     @classmethod
     @abstractmethod
-    def store_cls(self, clean: bool = True, dev_dependencies: bool = False, hot: bool = False) -> str:
+    def store_cls(self, clean: bool = True, dev_dependencies: bool = False, hot: bool = False) -> ObjectID:
         """Create an artifact of the class
 
         Args:
@@ -117,29 +105,34 @@ class Kind(ABC):
             hot (bool, optional): Whether to store an environment image
 
         Returns:
-            str: URI for the artifact
+            ObjectID: ID of the artifact
         """
         pass
 
     @abstractmethod
-    def store(self, dev_dependencies: bool = False, clean: bool = True) -> str:
+    def store(self, repo: Optional[str] = None, dev_dependencies: bool = False, clean: bool = True) -> ObjectID:
         """Create a artifact with the current objects state stored
 
         Args:
+            repo (str, optional): Repo to use. Defaults to none.
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean the generated files. Defaults to True.
 
         Returns:
-            str: URI for the artifact
+            ObjectID: ID for the artifact
         """
         pass
 
     @abstractmethod
-    def publish(self) -> str:
+    def publish(self, version: Optional[str] = None, repo: Optional[str] = None) -> PkgID:
         """Publish the repo as an installable package
 
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
+
         Returns:
-            str: URI for the artifact
+            PkgID: A package ID
         """
         pass
 
@@ -309,21 +302,21 @@ class Kind(ABC):
 
     @classmethod
     @abstractmethod
-    def schema(cls) -> str:
+    def schema(cls) -> Dict[str, Any]:
         """Schema of the object
 
         Returns:
-            str: Object schema
+            Dict[str, Any]: Object schema
         """
         pass
 
     @classmethod
     @abstractmethod
-    def find(cls, locator: ObjectLocator) -> List[str]:
+    def find(cls, repo: Optional[str] = None) -> List[str]:
         """Find objects of this kind
 
         Args:
-            locator (ObjectLocator): A locator of objects
+            repo (str, optional): Repo to search, defaults to None
 
         Returns:
             List[str]: A list of object uris
@@ -332,16 +325,13 @@ class Kind(ABC):
 
     @classmethod
     @abstractmethod
-    def versions(
-        cls, repositories: Optional[List[str]] = None, cfg: Optional[Config] = None, compatible: bool = True
-    ) -> List[str]:
+    def versions(cls, repo: Optional[str] = None, cfg: Optional[Config] = None, compatible: bool = True) -> List[str]:
         """Find all versions of this type
 
         Args:
-            cls (Type[Server]): the Server class
-            repositories (List[str], optional): Extra repositories to check
-            cfg (Config, optional): Config to use
-            compatible (bool, optional): Whether to only return compatible resources
+            repo (str, optional): Repo to check. Defaults to None
+            cfg (Config, optional): Config to use. Defaults to None
+            compatible (bool, optional): Whether to only return compatible resources. Defaults to True
 
         Returns:
             List[str]: A list of versions

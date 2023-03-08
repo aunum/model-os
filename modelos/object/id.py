@@ -13,10 +13,10 @@ class Version:
     interface: str
     """Version of the object interface, includes only the signatures of the client"""
 
-    logic: Optional[str]
+    logic: Optional[str] = None
     """Version of the object code and its dependencies"""
 
-    state: Optional[str]
+    state: Optional[str] = None
     """Version of the object state based on its attributes"""
 
     @classmethod
@@ -103,6 +103,27 @@ class Version:
             return True
         return False
 
+    def is_compatible(self, other: Version) -> bool:
+        """Check whether the given version is compatible
+        Will only check the non-zero fields in the current object.
+
+        Args:
+            other (Version): Version to compare with
+
+        Returns:
+            bool: Whether they are compatible
+        """
+        if self.interface != other.interface:
+            return False
+
+        if self.logic and self.logic != other.logic:
+            return False
+
+        if self.state and self.state != other.state:
+            return False
+
+        return True
+
     def __str__(self):
         if self.is_instance():
             if self.is_semver():
@@ -118,6 +139,9 @@ class Version:
             if self.is_semver():
                 return f"v{self.interface}"
             return f"{self.interface}"
+
+    def __eq__(self, other: Version) -> bool:  # type: ignore
+        return self.interface == other.interface and self.logic == other.logic and self.state == other.state
 
 
 @dataclass
@@ -171,8 +195,9 @@ class ObjectID:
     version: str
     host: str
     repo: str
+    protocol: str
 
-    def __init__(self, name: str, version: str, host: str, repo: str) -> None:
+    def __init__(self, name: str, version: str, host: str, repo: str, protocol: str) -> None:
         """A Object ID
 
         Args:
@@ -180,6 +205,7 @@ class ObjectID:
             version (str): Version of the object
             host (str): Host of the repo
             repo (str): Repository of the object
+            protocol (str): Protocol of the object
         """
         if not re.fullmatch("([A-Za-z0-9\\-]+)", name):
             raise ValueError("Invalid name, must only be letters, numbers and hypens")
@@ -187,6 +213,7 @@ class ObjectID:
         self.version = version
         self.repo = repo
         self.host = host
+        self.protocol = protocol
 
     @classmethod
     def parse_nv(cls, nvs: str) -> NV:
@@ -209,7 +236,10 @@ class ObjectID:
         return NV(self.name, self.version)
 
     def __str__(self):
-        return f"{self.host}/{self.repo}:{str(self.nv())}"
+        if self.protocol == "oci":
+            return f"{self.host}/{self.repo}:{str(self.nv())}"
+        else:
+            raise ValueError(f"unknown protocol {self.protocol}")
 
 
 def nv_from_uri(uri: str) -> NV:

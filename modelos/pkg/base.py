@@ -11,8 +11,9 @@ from modelos.pkg.info import PkgInfo
 from modelos.pkg.id import PkgID, NVS
 from modelos.pkg.scheme import DEFAULT_SCHEME
 from modelos.config import Config
-from modelos.pkg.version import hash_all, hash_files, compare_file_hashes, bump_version
+from modelos.pkg.version import hash_all, hash_files, compare_file_hashes
 from modelos.pkg.util import copy_any, rm_any
+from modelos.util.version import bump_version
 
 
 class Pkg:

@@ -1,4 +1,4 @@
-from typing import Any, get_type_hints, get_args, Optional, Dict
+from typing import Any, get_type_hints, get_args, Optional, Dict, Type
 import inspect
 
 from modelos.object.encoding import is_first_order, is_dict, is_enum, is_tuple, is_optional, is_list, is_union
@@ -130,7 +130,7 @@ def build_json_schema(obj: Any, default: Optional[Any] = None, sort: bool = True
         return {}
 
 
-def obj_api_schema(obj: Any, sort: bool = True) -> dict:
+def obj_api_schema(obj: Type, sort: bool = True) -> dict:
     """Build an OpenAPI schema for the object
 
     Args:
@@ -148,6 +148,9 @@ def obj_api_schema(obj: Any, sort: bool = True) -> dict:
         fns = sorted(fns)
 
     for name, fn in fns:
+        if name.startswith("_"):
+            continue
+
         req_props = {}
         required = []
 

@@ -5,7 +5,7 @@ import os
 from enum import Enum
 from typing import Dict, Protocol
 
-from modelos.util.rootpath import is_pyproject, has_mdl_repo, load_mdl_repo, load_pyproject
+from modelos.util.rootpath import is_pyproject, has_mdl_file, load_mdl_file, load_pyproject
 
 
 class Opts(Protocol):
@@ -34,7 +34,7 @@ class Config:
     remote_sync_strategy: RemoteSyncStrategy
 
     _pyproject_dict: Optional[Dict[str, Any]] = None
-    _mdl_repo: Optional[Dict[str, Any]] = None
+    _mdl_file: Optional[Dict[str, Any]] = None
 
     def __init__(
         self,
@@ -47,8 +47,8 @@ class Config:
         if is_pyproject():
             self._pyproject_dict = load_pyproject()
 
-        if has_mdl_repo():
-            self._mdl_repo = load_mdl_repo()
+        if has_mdl_file():
+            self._mdl_file = load_mdl_file()
 
         if image_repo is None:
             self.image_repo = self.get_image_repo()
@@ -94,15 +94,15 @@ class Config:
         if env is not None:
             return env
 
+        if self._mdl_file is not None:
+            if "image_repo" in self._mdl_file:
+                return self._mdl_file["image_repo"]
+
         if self._pyproject_dict is not None:
             try:
                 return self._pyproject_dict["tool"]["modelos"]["image_repo"]
             except KeyError:
                 pass
-
-        if self._mdl_repo is not None:
-            if "image_repo" in self._mdl_repo:
-                return self._mdl_repo["image_repo"]
 
         return None
 
@@ -111,15 +111,15 @@ class Config:
         if env is not None:
             return env
 
+        if self._mdl_file is not None:
+            if "pkg_repo" in self._mdl_file:
+                return self._mdl_file["pkg_repo"]
+
         if self._pyproject_dict is not None:
             try:
                 return self._pyproject_dict["tool"]["modelos"]["pkg_repo"]
             except KeyError:
                 pass
-
-        if self._mdl_repo is not None:
-            if "pkg_repo" in self._mdl_repo:
-                return self._mdl_repo["pkg_repo"]
 
         return None
 
@@ -128,15 +128,15 @@ class Config:
         if env is not None:
             return env
 
+        if self._mdl_file is not None:
+            if "docker_socket" in self._mdl_file:
+                return self._mdl_file["docker_socket"]
+
         if self._pyproject_dict is not None:
             try:
                 return self._pyproject_dict["tool"]["modelos"]["docker_socket"]
             except KeyError:
                 pass
-
-        if self._mdl_repo is not None:
-            if "docker_socket" in self._mdl_repo:
-                return self._mdl_repo["docker_socket"]
 
         return ""
 
@@ -145,15 +145,15 @@ class Config:
         if env is not None:
             return env
 
+        if self._mdl_file is not None:
+            if "kube_namespace" in self._mdl_file:
+                return self._mdl_file["kube_naemspace"]
+
         if self._pyproject_dict is not None:
             try:
                 return self._pyproject_dict["tool"]["modelos"]["kube_namespace"]
             except KeyError:
                 pass
-
-        if self._mdl_repo is not None:
-            if "kube_namespace" in self._mdl_repo:
-                return self._mdl_repo["kube_naemspace"]
 
         return ""
 
@@ -162,6 +162,10 @@ class Config:
         if env is not None:
             return RemoteSyncStrategy(env)
 
+        if self._mdl_file is not None:
+            if "remote_sync_strategy" in self._mdl_file:
+                return RemoteSyncStrategy(self._mdl_file["remote_sync_strategy"])
+
         if self._pyproject_dict is not None:
             try:
                 sync = self._pyproject_dict["tool"]["modelos"]["remote_sync_strategy"]
@@ -169,8 +173,4 @@ class Config:
             except KeyError:
                 pass
 
-        if self._mdl_repo is not None:
-            if "remote_sync_strategy" in self._mdl_repo:
-                return RemoteSyncStrategy(self._mdl_repo["remote_sync_strategy"])
-
-        return RemoteSyncStrategy.CONTAINER
+        return RemoteSyncStrategy.IMAGE
