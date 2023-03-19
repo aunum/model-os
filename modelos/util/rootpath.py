@@ -118,6 +118,11 @@ def is_pip_project(current_path: Optional[str] = None, pattern: Optional[str] = 
     if os.path.exists(config_path):
         return True
 
+    setup_path = os.path.join(path, "setup.py")
+
+    if os.path.exists(setup_path):
+        return True
+
     return False
 
 

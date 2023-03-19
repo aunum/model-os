@@ -21,6 +21,7 @@ from types import FunctionType
 from inspect import Parameter, signature
 import importlib
 import importlib.util
+import tempfile
 
 from starlette.schemas import SchemaGenerator
 import cloudpickle as pickle
@@ -104,8 +105,10 @@ from modelos.object.schema import obj_api_schema
 from modelos.pkg import Pkg, PkgID
 from modelos.util.source import get_source
 from modelos.util.version import bump_version, VersionBump, merge_bump
-from modelos.pkg.scheme.py import PYTHON_SCHEME
-from modelos.project import Project
+from modelos.pkg.scheme.python import PYTHON_SCHEME
+from modelos.project import Project, obj_rel_path, obj_module_path
+from modelos.util.path import get_root_dir
+from modelos.object.pkg import get_cls_modules, repackage, build_setup, build_requirements
 
 
 SERVER_PORT = "8080"
@@ -1437,10 +1440,76 @@ class Object(Kind):
         if not version:
             version = build_inst_version_hash(self)
 
+        client_version = interface_hash(self.schema())
+
+        obj_path = obj_rel_path(self)
+        mod_root_dir = get_root_dir(obj_path)
+
+        pkg_name = f"obj_{self.short_name()}_{version}".replace("-", "_").replace(".", "_")
+
+        client_cls = self._client_cls()
+        deps = get_cls_modules(client_cls)
+
+        py_info = sys.version_info
+        py_ver = f"{py_info.major}.{py_info.minor}.{py_info.micro}"
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            print("created temporary directory", tmpdirname)
+            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
+            pkg_dir = os.path.join(project_dir, pkg_name)
+            mod_dir = os.path.join(pkg_dir, mod_root_dir)
+
+            os.makedirs(pkg_dir, exist_ok=True)
+            root_init = os.path.join(pkg_dir, "__init__.py")
+
+            shutil.copytree(project.rootpath, pkg_dir)
+            print(os.listdir(project_dir))
+            print(os.listdir(pkg_dir))
+
+            client_mod = obj_module_path(client_cls)
+            with open(root_init, "w+") as f:
+                f.write(f"from .{client_mod} import {self.__class__.__name__}Client")
+
+            req_path = os.path.join(project_dir, "requirements.txt")
+            with open(req_path, "w+") as f:
+                s = build_requirements(deps)
+                f.write(s)
+
+            setup_path = os.path.join(project_dir, "setup.py")
+            with open(setup_path, "w+") as f:
+                setup_str = build_setup(
+                    pkg_name,
+                    client_version,
+                    "",
+                    "",
+                    "",
+                    "",
+                    "mdl",
+                    self.description(),
+                    py_ver,
+                )
+                f.write(setup_str)
+
+            repackage(mod_dir, pkg_name, mod_root_dir)
+
+            client_pkg = Pkg(
+                name=f"{self.short_name()}-client",
+                dir_path=tmpdirname,
+                description=self.description(),
+                version=client_version,
+                scheme=PYTHON_SCHEME,
+                labels=labels,
+                tags=tags,
+                remote=repo,
+                config=config,
+            )
+
+            client_pkg.push()
+
         if save:
             self.save()
 
-        pkg = Pkg(
+        obj_pkg = Pkg(
             name=self.short_name(),
             dir_path=project.rootpath,
             description=self.description(),
@@ -1451,9 +1520,15 @@ class Object(Kind):
             remote=repo,
             config=config,
         )
-        pkg.push()
 
-        return pkg.id()
+        obj_mod = obj_module_path(self)
+        with obj_pkg.open(root_init, "a") as f:
+            f.write(f"from {client_mod} import {self.__class__.__name__}Client")
+            f.write(f"from {obj_mod} import {self.__class__.__name__}")
+
+        obj_pkg.push()
+
+        return obj_pkg.id()
 
     @local
     def sync(self) -> None:

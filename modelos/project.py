@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 import hashlib
 import os
 import inspect
@@ -12,9 +12,44 @@ DEFAULT_ARCHIVE_BASE_DIR = "./.mdl/archive"
 SHORT_HASH_LENGTH = 7
 
 
-def obj_module_path(obj: Any) -> str:
-    """Get a module path for any given object"""
+def obj_in_project(obj: Any) -> bool:
+    """Check if the object is in the current project
 
+    Args:
+        obj (Any): Object to check
+
+    Raises:
+        ValueError: If the root path cannot be detected
+
+    Returns:
+        bool: Whether it is in the current project
+    """
+    if obj.__module__ == "__main__":
+        return True
+
+    fp = Path(inspect.getfile(obj))
+
+    if ".venv" in str(fp):
+        return False
+
+    r = _rootpath.detect()
+    if r is None:
+        raise ValueError("cannot detect root path")
+
+    rpath = Path(r)
+
+    return rpath in fp.parents
+
+
+def obj_rel_path(obj: Any) -> str:
+    """Object path relative to the project root
+
+    Args:
+        obj (Any): Object to find path
+
+    Returns:
+        str: The relative path
+    """
     fp = Path(inspect.getfile(obj))
     r = _rootpath.detect()
     if r is None:
@@ -22,6 +57,19 @@ def obj_module_path(obj: Any) -> str:
     rp = Path(r)
 
     local_path = str(fp.relative_to(rp))
+    return local_path
+
+
+def obj_module_path(obj: Any) -> str:
+    """Get a module path for any given object
+
+    Args:
+        obj (Any): Object to get path for
+
+    Returns:
+        str: Relative path
+    """
+    local_path = obj_rel_path(obj)
 
     clean_path = os.path.splitext(local_path)[0]
     module_path = clean_path.replace("/", ".")
@@ -33,21 +81,41 @@ class Project:
 
     rootpath: str
 
-    def __init__(self, rootpath: Optional[str] = None) -> None:
+    def __init__(
+        self, rootpath: Optional[str] = None, pattern: str = "requirements.txt|pyproject.toml|environment.yml"
+    ) -> None:
         """Initialize a project
 
         Args:
             rootpath (str, optional): Root path of the project. Defaults to autodetect.
+            pattern (str, optional): Pattern to find the root project. Default to 'requirements.txt|pyproject.toml|enviornment.yml'
         """
 
         if rootpath:
             self.rootpath = rootpath
         else:
-            detected = _rootpath.detect()
+            detected = _rootpath.detect(pattern=pattern)
             if not detected:
                 raise ValueError("Project root path not detected or provided")
 
             self.rootpath = detected
+
+    @classmethod
+    def is_project(cls, pattern: str = "requirements.txt|pyproject.toml|environment.yml") -> bool:
+        """Checks if this is a Python project
+
+        Args:
+            pattern (str, optional): Pattern to search for. Defaults
+                                    to "requirements.txt|pyproject.toml|environment.yml".
+
+        Returns:
+            bool: Whether this is a Python project
+        """
+        detected = _rootpath.detect(pattern=pattern)
+        if not detected:
+            return False
+
+        return True
 
     def load_pyproject(self) -> Dict[str, Any]:
         """Load the pyproject file as a dictionary
@@ -143,3 +211,45 @@ class Project:
                 env_files += f.read()
 
         return env_files
+
+    def get_deps(self) -> List[str]:
+        """Get dependencies for the project
+
+        Returns:
+            List[str]: List of dependencies
+        """
+
+        if self.is_pip_project():
+            pth = os.path.join(self.rootpath, "requirements.txt")
+            with open(pth, "r") as f:
+                deps: List[str] = []
+                lines = f.readlines()
+                for line in lines:
+                    deps.append(line.strip())
+
+                return deps
+
+        if self.is_poetry_project():
+            pyproject_dict = self.load_pyproject()
+
+            ret: List[str] = []
+            try:
+                pdeps = pyproject_dict["tool"]["poetry"]["dependencies"]
+                for k, v in pdeps.items():
+                    ret.append(f"{k}={v}")
+            except KeyError:
+                pass
+            try:
+                dev_deps = pyproject_dict["tool"]["poetry"]["dev-dependencies"]
+                for k, v in dev_deps.items():
+                    ret.append(f"{k}={v}")
+            except KeyError:
+                pass
+
+            return ret
+
+        if self.is_conda_project():
+            raise NotImplementedError("Conda will be supported in the future")
+
+        else:
+            raise NotImplementedError("Unknown project type")

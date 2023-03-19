@@ -1,6 +1,22 @@
 import os
 
 
+def get_root_dir(path: str) -> str:
+    """Get root directory of a given path
+
+    Args:
+        path (str): Path to get root for
+
+    Returns:
+        str: Root directory
+    """
+    path = os.path.normpath(path)
+    split = path.split(os.sep)
+    if split[0] == "":
+        split = split[1:]
+    return split[0]
+
+
 def list_files(startpath: str, base_idt: str = "", include_root: bool = False):
     """Print files in a tree format
 

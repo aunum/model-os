@@ -3,7 +3,7 @@ An operating system for machine learning
 
 ## Installation
 ```
-pip install modelos
+pip install mdl
 ```
 
 ## Docs 
@@ -20,7 +20,7 @@ Objects are distributed persistent Python objects.
 
 A sample object
 ```python
-from modelos import Object
+from mdl import Object
 
 class Foo(Object):
 
@@ -49,20 +49,19 @@ ModelOS objects work just like Python objects with some extra capabilities.
 Develop on the object remotely
 ```python
 # Create a client which can be used to generate remote instances
-FooClient = Foo.client(hot=True, repo="acme.org/ml-project")
+FooClient = Foo.client(repo="acme.org/ml-project")
 
-# Creates a remote instance within the context then deletes it
-with FooClient(name="bar", amount=7) as foo:
-    foo.add(6)
+# Creates a remote instance
+foo = FooClient(name="bar", amount=7)
+foo.add(6)
 
-    for s in foo.stream("baz"):
-        print(s)
+# Iterable types automaticallly generate websocket streams
+for s in foo.stream("baz"):
+    print(s)
 
-    # Store the object with its updated state
-    uri = foo.store()
+# Store the object with its updated state
+uri = foo.store()
 ```
-Example develop URI: `acme.org/ml-project:obj.foo.f2oij-2okzr-f8g2n`
-
 
 #### Releasing Objects
 Release the object to be used by others. This creates a semver for the object and client/server packages
@@ -80,55 +79,72 @@ Example release URI: `acme.org/ml-project:obj.foo.v1.2.3`
 
 #### Using Objects
 Install a client from a release and use it to generate a remote instance
+
+```sh
+$ mdl install foo --client
+
+successfully installed foo_client_v1
+```
+
 ```python
-from modelos import install_client
+from foo_client_v1 import FooClient
 
-# Install the latest client within a major version
-install_client("acme.org/ml-project:obj.foo.v1")
-
-from ml_project.foo.v1 import FooClient
-
-# Use the latest release
-with FooClient(amount=10) as foo:
-    foo.echo("bar")
-
-# Specify a class release version
-FooClient.version = "v1.2"
-
-with FooClient(amount=10) as foo:
-    foo.echo("bar")
-
-# Specify an instance version
-with FooClient.instance("v1.2.3") as foo:
-    foo.echo("bar")
+foo = FooClient(amount=10)
+foo.echo("bar")
 ```
 
 Install a class and use locally or remotely
+```sh
+$ mdl install foo -v 1.2
+
+successfully installed foo_v1_2
+```
 ```python
-from modelos import install
-
-install("acme.org/ml-project:obj.foo.v1.2")
-
-from ml_project.foo.v1_2 import Foo
+from foo_v1_2 import Foo
 
 # locally
 foo = Foo(amount=12)
 foo.add(5)
 
 # remotely
-with Foo.client()(amount=10) as foo:
-    foo.echo("bar")
+foo = Foo.client()(amount=10)
+foo.echo("bar")
 ```
 
 Install an instance and use it locally
+```sh
+$ mdl install foo -v 1.2.3
+
+successfully installed foo_v1_2_3
+```
 ```python
-from modelos import install
-
-install("acme.org/ml-project:obj.foo.v1.2.3")
-
-from ml_project.foo.v1_2_3 import Foo
+from foo_v1_2_3 import Foo
 
 # load the object instance state
+foo = Foo.from_env()
+
+foo.echo("bar")
+```
+
+Use an object dynamically
+```python
+from mdl import load
+
+Foo = load("foo", version="v1.2.3")
+
+foo = Foo.client()(amount=10)
+foo.echo("bar")
+```
+
+Install an object from a full URI
+```sh
+$ mdl install acme.org/ml-project:obj.foo.v1.2.3
+
+successfully installed ml_project_foo_v1_2_3
+```
+```python
+from ml_project_foo_v1_2_3 import Foo
+
 foo = Foo.from_env()
 
 foo.echo("bar")
@@ -140,7 +156,7 @@ An example working project can be found at https://github.com/pbarker/kvd
 
 A text classifier
 ```python
-from modelos import Object
+from mdl import Object
 from simpletransformers.classification import ClassificationModel, ClassificationArgs
 import pandas as pd
 
@@ -180,10 +196,10 @@ preds = model.predict("Merrry is stronger than Pippin")
 See more [examples in docs](./examples/)
 
 ## Packages
-Packages are versioned filesystems
+Packages are versioned filesystems with support for large files
 
 ```python
-from modelos.pkg import Pkg, clean
+from mdl import Pkg, clean
 
 # Create a new package from the ./data dir
 pkg = Pkg("foo", "./data", "A foo package", remote="acme.org/ml-project")

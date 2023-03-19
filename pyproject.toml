@@ -27,6 +27,9 @@ lib-programname = "^2.0.5"
 uvicorn = { extras = ["standard"], version = "^0.20.0" }
 rich = "^13.3.1"
 dill = "^0.3.6"
+pkginfo = "^1.9.6"
+nbconvert = "^7.2.10"
+nbformat = "^5.7.3"
 
 [tool.poetry.dev-dependencies]
 mypy = "^1.0.0"
@@ -35,6 +38,11 @@ types-PyYAML = "^6.0.12"
 types-six = "^1.16.21"
 ipykernel = "^6.21.1"
 simpletransformers = "^0.63.9"
+
+[tool.poetry.group.dev.dependencies]
+simpletransformers = "^0.63.9"
+torch = "^1.13.1"
+numpy = "^1.24.2"
 
 [tool.modelos]
 image_repo = "aunum/mdl-test"
