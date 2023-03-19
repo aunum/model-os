@@ -273,14 +273,13 @@ setup(
     version="{version}",
     url="{url}",
     install_requires=required,
-    project_urls={
+    project_urls={{
         "Documentation": "{docs}",
         "Code": "{code}",
         "Issue tracker": "{tracker}",
-    },
+    }},
     maintainer="{maintainer}",
     description="{description}",
     python_requires=">={python_version}",
-    packages=find_packages(include=("ocifacts", "ocifacts.*")),
 )
     """

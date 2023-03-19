@@ -1,11 +1,10 @@
-from typing import Any
+from typing import Any, List
 import inspect
 import sys
-import os
 import ast
+
 from IPython.core.magics.code import extract_symbols
 from IPython.core.getipython import get_ipython
-from nbconvert import PythonExporter
 import IPython
 
 
@@ -24,7 +23,12 @@ def get_all_notebook_code() -> str:
     return fin
 
 
-def find_import_statements():
+def find_import_statements() -> List[str]:
+    """Get all import statements for a notebook
+
+    Returns:
+        List[str]: List of import statements
+    """
     import_statements = set()
 
     # Get the current Jupyter Notebook cells
@@ -99,76 +103,3 @@ def is_notebook() -> bool:
             return False  # Other type (?)
     except NameError:
         return False  # Probably standard Python interpreter
-
-
-class DependencyExtractor(ast.NodeVisitor):
-    def __init__(self):
-        self.dependencies = set()
-
-    def visit_Name(self, node):
-        self.dependencies.add(node.id)
-
-    def visit_Attribute(self, node):
-        self.dependencies.add(node.attr)
-
-
-def extract_dependencies(code):
-    tree = ast.parse(code)
-    extractor = DependencyExtractor()
-    extractor.visit(tree)
-    return extractor.dependencies
-
-
-def extract_class_from_notebook(notebook_path, class_name, output_file):
-    if not os.path.exists(notebook_path):
-        raise ValueError("notebook path does not exist")
-
-    with open(notebook_path, "r") as f:
-        ln = f.read()
-        if len(ln) < 2:
-            raise ValueError("Notebook exists but is empty, maybe you need to save?")
-
-    # Convert the Jupyter notebook to a Python script
-    exporter = PythonExporter()
-    code, _ = exporter.from_filename(notebook_path)
-
-    # Find the main class definition
-    class_def = None
-    for node in ast.parse(code).body:
-        if isinstance(node, ast.ClassDef) and node.name == class_name:
-            class_def = node
-            break
-
-    if class_def is None:
-        raise ValueError(f"Class {class_name} not found in the notebook {notebook_path}")
-
-    # Get the class code and its dependencies
-    class_code = code[class_def.col_offset : class_def.end_col_offset].strip()  # noqa
-    dependencies = extract_dependencies(class_code)
-
-    # Extract definitions that the class depends on
-    definitions = []
-    for node in ast.parse(code).body:
-        if (
-            isinstance(node, ast.Import)
-            or isinstance(node, ast.ImportFrom)
-            or isinstance(node, ast.FunctionDef)
-            or isinstance(node, ast.Assign)
-        ):
-            for target in ast.walk(node):
-                print("target: ", target)
-                if isinstance(target, ast.Name) and target.id in dependencies:
-                    definitions.append(code[node.col_offset : node.end_col_offset].strip())  # noqa
-                    break
-
-    # Create output file
-    with open(output_file, "w") as f:
-        # Write imports, functions, and variables to the output file
-        for definition in definitions:
-            f.write(definition)
-            f.write("\n\n")
-
-        # Write the class definition to the output file
-        f.write(class_code)
-
-    print(f"Successfully extracted class {class_name} into {output_file}")

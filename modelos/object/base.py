@@ -1506,27 +1506,40 @@ class Object(Kind):
 
             client_pkg.push()
 
-        if save:
-            self.save()
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            print("created temporary directory", tmpdirname)
+            if save:
+                self.save()
 
-        obj_pkg = Pkg(
-            name=self.short_name(),
-            dir_path=project.rootpath,
-            description=self.description(),
-            version=version,
-            scheme=PYTHON_SCHEME,
-            labels=labels,
-            tags=tags,
-            remote=repo,
-            config=config,
-        )
+            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
+            pkg_dir = os.path.join(project_dir, pkg_name)
+            mod_dir = os.path.join(pkg_dir, mod_root_dir)
 
-        obj_mod = obj_module_path(self)
-        with obj_pkg.open(root_init, "a") as f:
-            f.write(f"from {client_mod} import {self.__class__.__name__}Client")
-            f.write(f"from {obj_mod} import {self.__class__.__name__}")
+            os.makedirs(pkg_dir, exist_ok=True)
+            root_init = os.path.join(pkg_dir, "__init__.py")
 
-        obj_pkg.push()
+            shutil.copytree(project.rootpath, pkg_dir)
+            print(os.listdir(project_dir))
+            print(os.listdir(pkg_dir))
+
+            obj_mod = obj_module_path(self)
+            with open(root_init, "a") as f:
+                f.write(f"from {client_mod} import {self.__class__.__name__}Client")
+                f.write(f"from {obj_mod} import {self.__class__.__name__}")
+
+            obj_pkg = Pkg(
+                name=self.short_name(),
+                dir_path=project.rootpath,
+                description=self.description(),
+                version=version,
+                scheme=PYTHON_SCHEME,
+                labels=labels,
+                tags=tags,
+                remote=repo,
+                config=config,
+            )
+
+            obj_pkg.push()
 
         return obj_pkg.id()
 
