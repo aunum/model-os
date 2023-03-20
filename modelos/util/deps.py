@@ -11,6 +11,14 @@ from modelos.project import Project
 
 
 def find_imports(fp: str) -> List[Union[ast.Import, ast.ImportFrom]]:
+    """Find imports for a filepath
+
+    Args:
+        fp (str): Filepath to find imports for
+
+    Returns:
+        List[Union[ast.Import, ast.ImportFrom]]: A list of AST import nodes
+    """
     with open(fp, "r") as file:
         source_code = file.read()
 
@@ -25,6 +33,14 @@ def find_imports(fp: str) -> List[Union[ast.Import, ast.ImportFrom]]:
 
 
 def is_stdlib(spec: ModuleSpec) -> bool:
+    """Check if the given module spec is in the stdlib
+
+    Args:
+        spec (ModuleSpec): Spec to check
+
+    Returns:
+        bool: Whether it is in the stdlib
+    """
     parts = spec.name.split(".")
     if len(parts) > 1:
         _spec = find_spec(parts[0])
@@ -102,7 +118,7 @@ def _should_add(current: ModuleSpec, found: ModuleSpec) -> bool:
     return True
 
 
-def mods_to_search(spec: ModuleSpec) -> List[ModuleSpec]:
+def _mods_to_search(spec: ModuleSpec) -> List[ModuleSpec]:
     ret: List[ModuleSpec] = [spec]
     parts = spec.name.split(".")
 
@@ -167,7 +183,7 @@ def get_deps_for_type(t: Type) -> List[Tuple[str, str]]:
 
                     add(spec, _spec)
                     if _should_search(spec, _spec):
-                        for s in mods_to_search(_spec):
+                        for s in _mods_to_search(_spec):
                             _find_in_spec(s)
 
                 else:
@@ -181,7 +197,7 @@ def get_deps_for_type(t: Type) -> List[Tuple[str, str]]:
 
                     add(spec, _spec)
                     if _should_search(spec, _spec):
-                        for s in mods_to_search(_spec):
+                        for s in _mods_to_search(_spec):
                             _find_in_spec(s)
 
             elif isinstance(imp, ast.Import):
@@ -195,7 +211,7 @@ def get_deps_for_type(t: Type) -> List[Tuple[str, str]]:
 
                     add(spec, _spec)
                     if _should_search(spec, _spec):
-                        for s in mods_to_search(_spec):
+                        for s in _mods_to_search(_spec):
                             _find_in_spec(s)
 
     spec = find_spec(mod.__name__)
