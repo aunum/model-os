@@ -3,10 +3,12 @@ from typing import Dict, Any, Optional, List
 import hashlib
 import os
 import inspect
+import json
 
 import git
 import tomli
 import modelos.util.rootpath as _rootpath
+import distutils.core
 
 DEFAULT_ARCHIVE_BASE_DIR = "./.mdl/archive"
 SHORT_HASH_LENGTH = 7
@@ -88,7 +90,8 @@ class Project:
 
         Args:
             rootpath (str, optional): Root path of the project. Defaults to autodetect.
-            pattern (str, optional): Pattern to find the root project. Default to 'requirements.txt|pyproject.toml|enviornment.yml'
+            pattern (str, optional): Pattern to find the root project.
+                                     Default to 'requirements.txt|pyproject.toml|environment.yml'
         """
 
         if rootpath:
@@ -150,13 +153,21 @@ class Project:
 
         return is_poetry_project
 
-    def is_pip_project(self) -> bool:
-        """Checks if the project is a pip project
+    def has_requirements_file(self) -> bool:
+        """Checks if the project has a requirements file
 
         Returns:
-            bool: Whether the project is a pip project
+            bool: Whether the project has a requirements file
         """
-        return _rootpath.is_pip_project()
+        return _rootpath.has_requirements_file()
+
+    def has_setup_script(self) -> bool:
+        """Checks if the project has a setup script
+
+        Returns:
+            bool: Whether the project has a setup script
+        """
+        return _rootpath.has_setup_script()
 
     def is_conda_project(self) -> bool:
         """Checks whether the project is a conda project
@@ -202,13 +213,20 @@ class Project:
             with open(os.path.join(self.rootpath, "poetry.lock"), "r") as f:
                 env_files += f.read()
 
-        if self.is_pip_project():
+        elif self.has_setup_script():
+            setup = distutils.core.run_setup(os.path.join(self.rootpath, "setup.py"))
+            env_files += json.dumps(setup.metadata.get_requires().sort())
+
+        elif self.has_requirements_file():
             with open(os.path.join(self.rootpath, "requirements.txt"), "r") as f:
                 env_files += f.read()
 
-        if self.is_conda_project():
+        elif self.is_conda_project():
             with open(os.path.join(self.rootpath, "environment.yml"), "r") as f:
                 env_files += f.read()
+
+        else:
+            raise ValueError("unknown projecdt type")
 
         return env_files
 
@@ -219,7 +237,7 @@ class Project:
             List[str]: List of dependencies
         """
 
-        if self.is_pip_project():
+        if self.has_requirements_file():
             pth = os.path.join(self.rootpath, "requirements.txt")
             with open(pth, "r") as f:
                 deps: List[str] = []

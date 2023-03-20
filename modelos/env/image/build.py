@@ -13,6 +13,7 @@ from modelos.config import Config, RemoteSyncStrategy
 from modelos.virtual.container.client import default_socket
 from modelos.scm import SCM
 from modelos.util.rootpath import load_conda_yaml, detect
+from modelos.project import Project
 
 TOMLDict = Dict[str, Any]
 
@@ -106,6 +107,7 @@ def build_dockerfile(
     base_image: Optional[str] = None,
     dev_dependencies: bool = False,
     scm: Optional[SCM] = None,
+    project: Optional[Project] = None,
     cfg: Optional[Config] = None,
     command: Optional[List[str]] = None,
     sync_strategy: Optional[RemoteSyncStrategy] = None,
@@ -116,6 +118,7 @@ def build_dockerfile(
         base_image (Optional[str], optional): base image to use. Defaults to None.
         dev_dependencies (bool, optional): install dev dependencies. Defaults to False.
         scm (SCM, optional): SCM to use. Defaults to None.
+        project (Project, optional): Project to use. Defaults to None.
         cfg (Config, optional): Config to use. Defaults to None.
         command (List[str], optional): Optional command to add to the container
 
@@ -124,6 +127,9 @@ def build_dockerfile(
     """
     if scm is None:
         scm = SCM()
+
+    if project is None:
+        project = Project()
 
     if cfg is None:
         cfg = Config()
@@ -141,18 +147,21 @@ def build_dockerfile(
     logging.info(f"using project root: {project_root}")
 
     dockerfile: Optional[Dockerfile] = None
-    if scm.is_poetry_project():
+
+    if project.is_poetry_project():
         logging.info("building image for poetry project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
             logging.info("building poetry dockerfile")
-            dockerfile = build_poetry_dockerfile(scm.load_pyproject(), project_root, base_image, dev_dependencies)
+            dockerfile = build_poetry_dockerfile(project.load_pyproject(), project_root, base_image, dev_dependencies)
         elif sync_strategy == RemoteSyncStrategy.CONTAINER:
             logging.info("building poetry env dockerfile")
-            dockerfile = build_poetry_base_dockerfile(scm.load_pyproject(), project_root, base_image, dev_dependencies)
+            dockerfile = build_poetry_base_dockerfile(
+                project.load_pyproject(), project_root, base_image, dev_dependencies
+            )
         else:
             raise SystemError("unknown sync strategy")
 
-    elif scm.is_pip_project():
+    elif project.has_requirements_file():
         logging.info("building image for pip project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
             dockerfile = build_pip_containerfile(project_root, base_image)
@@ -161,7 +170,7 @@ def build_dockerfile(
         else:
             raise SystemError("unknown sync strategy")
 
-    elif scm.is_conda_project():
+    elif project.is_conda_project():
         logging.info("building image for conda project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
             dockerfile = build_conda_containerfile(project_root, base_image)
@@ -661,29 +670,32 @@ def find_or_build_img(
     return image_id
 
 
-def img_command(container_path: str, scm: Optional[SCM] = None) -> List[str]:
+def img_command(container_path: str, scm: Optional[SCM] = None, project: Optional[Project] = None) -> List[str]:
     """Create the CMD for the image based on the project type
 
     Args:
         container_path (str): Path to the executable
         scm (Optional[SCM], optional): An optional SCM to pass. Defaults to None.
+        project (Optional[Project], optional): An optional Project to pass. Defaults to None.
 
     Returns:
         List[str]: A CMD list
     """
     if scm is None:
         scm = SCM()
+    if project is None:
+        project = Project()
 
     mod_path = path_to_module(container_path, REPO_ROOT)
 
     command = ["python", "-m", mod_path]
-    if scm.is_poetry_project():
+    if project.is_poetry_project():
         command = ["poetry", "run", "python", "-m", mod_path]
 
-    elif scm.is_pip_project():
+    elif project.has_requirements_file():
         command = ["python", "-m", mod_path]
 
-    elif scm.is_conda_project():
+    elif project.is_conda_project():
         conda_yaml = load_conda_yaml()
         if "name" not in conda_yaml:
             raise ValueError("cannot find 'name' in environment.yml")

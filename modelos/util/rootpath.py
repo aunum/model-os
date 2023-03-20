@@ -108,7 +108,20 @@ def is_conda_project(current_path: Optional[str] = None, pattern: Optional[str] 
     return False
 
 
-def is_pip_project(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
+def has_setup_script(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
+    path = detect(current_path, pattern)
+    if path is None:
+        return False
+
+    setup_path = os.path.join(path, "setup.py")
+
+    if os.path.exists(setup_path):
+        return True
+
+    return False
+
+
+def has_requirements_file(current_path: Optional[str] = None, pattern: Optional[str] = None) -> bool:
     path = detect(current_path, pattern)
     if path is None:
         return False
@@ -116,11 +129,6 @@ def is_pip_project(current_path: Optional[str] = None, pattern: Optional[str] = 
     config_path = os.path.join(path, "requirements.txt")
 
     if os.path.exists(config_path):
-        return True
-
-    setup_path = os.path.join(path, "setup.py")
-
-    if os.path.exists(setup_path):
         return True
 
     return False
@@ -206,3 +214,22 @@ def load_pyproject(current_path: Optional[str] = None, pattern: Optional[str] = 
 
     with open(config_path, "rb") as f:
         return tomli.load(f)
+
+
+def path_to_module(path: str, project_root: Optional[str] = None) -> str:
+    """Convert a path to a module
+
+    Args:
+        path (str): Path to convert
+        project_root (Optional[str], optional): Project root. Defaults to autodetect
+
+    Returns:
+        str: Module path
+    """
+    if project_root is None:
+        project_root = detect()
+    mod_path = ".".join(path.split(".")[:-1])
+    mod_path = os.path.normpath(os.path.relpath(mod_path, project_root))
+    mod_path = mod_path.replace("/", ".")
+
+    return mod_path

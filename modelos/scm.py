@@ -80,14 +80,6 @@ class SCM:
 
         return is_poetry_project
 
-    def is_pip_project(self) -> bool:
-        """Checks if the project is a pip project
-
-        Returns:
-            bool: Whether the project is a pip project
-        """
-        return rootpath.is_pip_project()
-
     def is_conda_project(self) -> bool:
         """Checks whether the project is a conda project
 

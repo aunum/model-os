@@ -273,4 +273,5 @@ def extract_cls_to_file(cls: Type) -> None:
 
     unimport_main.run(["-r", fp])
 
+    logging.info(f"sucessfully extracted class '{cls.__name__}' to file '{fp}'")
     return None
