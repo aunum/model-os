@@ -31,6 +31,7 @@ pkginfo = "^1.9.6"
 nbconvert = "^7.2.10"
 nbformat = "^5.7.3"
 packaging = "^23.0"
+pipreqs = "^0.4.11"
 
 [tool.poetry.dev-dependencies]
 mypy = "^1.0.0"
