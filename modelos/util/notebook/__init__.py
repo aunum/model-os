@@ -1,4 +1,4 @@
-from typing import Any, List
+from typing import Any, List, Type
 import inspect
 import sys
 import ast
@@ -103,3 +103,20 @@ def is_notebook() -> bool:
             return False  # Other type (?)
     except NameError:
         return False  # Probably standard Python interpreter
+
+
+def is_notebook_cls(cls: Type) -> bool:
+    """Check if the class was defined in a running notebook
+
+    Args:
+        cls (Type): Class to check
+
+    Returns:
+        bool: Whether the class is defined in a notebook
+    """
+    if not is_notebook():
+        return False
+    if cls.__module__ != "__main__":
+        return False
+
+    return True

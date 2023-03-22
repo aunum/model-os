@@ -3,12 +3,14 @@ An operating system for machine learning
 
 ## Installation
 ```
-pip install mdl
+pip install model-os
 ```
 
-## Docs 
+## Concept
 
-To understand the direction of the project see [our slides](https://docs.google.com/presentation/d/1U51kZ2KyljTgodxCfSrJDlEvKQQKLWMjFYaY0XI5c3M/edit?usp=sharing)
+To understand the direction of the project see [our slides](https://docs.google.com/presentation/d/1U51kZ2KyljTgodxCfSrJDlEvKQQKLWMjFYaY0XI5c3M/edit?usp=sharing). 
+
+tl;dr [Ray](https://www.ray.io/) and [Huggingface](https://huggingface.co/) had a baby.
 
 ## Usage
 
@@ -24,20 +26,20 @@ from mdl import Object
 
 class Foo(Object):
 
-    name: str
+    id: str
     amount: int
 
-    def __init__(self, name: str, amount: int) -> None:
-        self.name = name
+    def __init__(self, id: str, amount: int) -> None:
+        self.id = id
         self.amount = amount
 
-    def add(amount: int) -> None:
+    def add(self, amount: int) -> None:
         self.amount += amount
 
-    def echo(s: str) -> str:
+    def echo(self, s: str) -> str:
         return f"hello {s}"
 
-    def stream(s: str) -> Iterable[str]:
+    def stream(self, s: str) -> Iterable[str]:
         for i in range(self.amount):
             yield f"hello {s} {i}"
 
