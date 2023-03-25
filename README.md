@@ -24,7 +24,7 @@ ModelOS adds capabilities to Python objects, it can help you:
 
 To understand the direction of the project see [our slides](https://docs.google.com/presentation/d/1U51kZ2KyljTgodxCfSrJDlEvKQQKLWMjFYaY0XI5c3M/edit?usp=sharing). 
 
-tl;dr [Ray](https://www.ray.io/) meets [Huggingface](https://huggingface.co/)
+tl;dr Blending the best ideas from [Ray](https://www.ray.io/) & [Huggingface](https://huggingface.co/) & [Pathways](https://blog.google/technology/ai/introducing-pathways-next-generation-ai-architecture/)
 
 ## Quick Start
 
