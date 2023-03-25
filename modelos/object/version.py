@@ -25,7 +25,7 @@ def interface_hash(schema: dict) -> str:
 
     s = yaml.dump(schema)
     h = hashlib.new("sha256")
-    h.update(s)
+    h.update(str(s).encode())
 
     return h.hexdigest()[:VERSION_SHA_LENGTH]
 
@@ -338,7 +338,7 @@ def instance_hash(instance: Any) -> str:
     return h.hexdigest()[:VERSION_SHA_LENGTH]
 
 
-def build_obj_version_hash(cls: Type) -> str:
+def build_obj_version_hash(client_cls: Type, server_cls: Type) -> str:
     """Build a version hash for the object class
 
     Args:
@@ -347,15 +347,15 @@ def build_obj_version_hash(cls: Type) -> str:
     Returns:
         str: Object hash {interface}-{class}
     """
-    schema = obj_api_schema(cls)
+    schema = obj_api_schema(client_cls)
     iface_hash = interface_hash(schema)
 
-    obj_hash = class_hash(cls)
+    obj_hash = class_hash(server_cls)
 
     return f"{iface_hash}-{obj_hash}"
 
 
-def build_inst_version_hash(obj: Any) -> str:
+def build_inst_version_hash(client_cls: Type, obj: Any) -> str:
     """Build a version hash for the object instance
 
     Args:
@@ -364,7 +364,7 @@ def build_inst_version_hash(obj: Any) -> str:
     Returns:
         str: Object hash {interface}-{class}-{instance}
     """
-    obj_hash = build_obj_version_hash(obj.__class__)
+    obj_hash = build_obj_version_hash(client_cls, obj.__class__)
     inst_hash = instance_hash(obj)
 
     return f"{obj_hash}-{inst_hash}"

@@ -7,7 +7,7 @@ import subprocess
 from docker import APIClient
 from rich.progress import Progress, TaskID
 
-from modelos.virtual.container.file import Dockerfile, write_dockerfile, MDL_DOCKERFILE_NAME
+from modelos.virtual.container.file import Dockerfile, write_dockerfile, delete_dockerfile, MDL_DOCKERFILE_NAME
 from modelos.virtual.container.id import ImageID
 from modelos.config import Config, RemoteSyncStrategy
 from modelos.virtual.container.client import default_socket
@@ -17,7 +17,7 @@ from modelos.project import Project
 
 TOMLDict = Dict[str, Any]
 
-REPO_ROOT = "/app"
+CONTAINER_ROOT = "/app"
 
 DEFAULT_PORT = 8000
 
@@ -65,7 +65,7 @@ def img_tag(
 
 def img_id(
     strategy: RemoteSyncStrategy,
-    image_repo: Optional[str] = None,
+    img_repo: Optional[str] = None,
     tag: Optional[str] = None,
     tag_prefix: Optional[str] = None,
     scm: Optional[SCM] = None,
@@ -75,7 +75,7 @@ def img_id(
 
     Args:
         strategy (RemoteSyncStrategy): Sync strategy to use
-        image_repo (Optional[str], optional): Image repository to use. Defaults to None.
+        img_repo (Optional[str], optional): Image repository to use. Defaults to None.
         tag (Optional[str], optional): Tag to use. Defaults to None.
         tag_prefix (Optional[str], optional): Tag prefix to use. Defaults to None.
         scm (Optional[SCM], optional): SCM to use. Defaults to None.
@@ -84,11 +84,11 @@ def img_id(
     Returns:
         ImageID: An ImageID
     """
-    if image_repo is None:
+    if img_repo is None:
         cfg = Config()
-        if cfg.image_repo is None:
+        if cfg.img_repo is None:
             raise ValueError("must supply image repo")
-        image_repo = cfg.image_repo
+        img_repo = cfg.img_repo
 
     if scm is None:
         scm = SCM()
@@ -96,7 +96,7 @@ def img_id(
     if tag is None:
         tag = img_tag(strategy, scm, tag_prefix=tag_prefix, client_filepath=client_filepath)
 
-    id = ImageID.from_ref(image_repo)
+    id = ImageID.from_ref(img_repo)
     if id.tag is not None:
         raise ValueError("image repo should not have tag supplied")
     id.tag = tag
@@ -104,10 +104,10 @@ def img_id(
 
 
 def build_dockerfile(
+    project: Optional[Project] = None,
     base_image: Optional[str] = None,
     dev_dependencies: bool = False,
     scm: Optional[SCM] = None,
-    project: Optional[Project] = None,
     cfg: Optional[Config] = None,
     command: Optional[List[str]] = None,
     sync_strategy: Optional[RemoteSyncStrategy] = None,
@@ -115,15 +115,16 @@ def build_dockerfile(
     """Build a Containerfile for the repo
 
     Args:
+        project (Project, optional): Project to use. Defaults to None.
         base_image (Optional[str], optional): base image to use. Defaults to None.
         dev_dependencies (bool, optional): install dev dependencies. Defaults to False.
         scm (SCM, optional): SCM to use. Defaults to None.
-        project (Project, optional): Project to use. Defaults to None.
         cfg (Config, optional): Config to use. Defaults to None.
         command (List[str], optional): Optional command to add to the container
+        sync_strategy (RemoteSyncStrategy, optional): Sync strategy to use
 
     Returns:
-        Dockerfile: A Dockerffile
+        Dockerfile: A Dockerfile
     """
     if scm is None:
         scm = SCM()
@@ -137,10 +138,7 @@ def build_dockerfile(
     if sync_strategy is None:
         sync_strategy = cfg.remote_sync_strategy
 
-    rel_path = scm.rel_project_path()
-    project_root = REPO_ROOT
-    if rel_path != "./" and rel_path != ".":
-        project_root = os.path.join(REPO_ROOT, rel_path)
+    project_root = CONTAINER_ROOT
     if project_root[-1] != "/":
         project_root = project_root + "/"
 
@@ -152,30 +150,28 @@ def build_dockerfile(
         logging.info("building image for poetry project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
             logging.info("building poetry dockerfile")
-            dockerfile = build_poetry_dockerfile(project.load_pyproject(), project_root, base_image, dev_dependencies)
+            dockerfile = build_poetry_dockerfile(project.load_pyproject(), project, base_image, dev_dependencies)
         elif sync_strategy == RemoteSyncStrategy.CONTAINER:
             logging.info("building poetry env dockerfile")
-            dockerfile = build_poetry_base_dockerfile(
-                project.load_pyproject(), project_root, base_image, dev_dependencies
-            )
+            dockerfile = build_poetry_base_dockerfile(project.load_pyproject(), project, base_image, dev_dependencies)
         else:
             raise SystemError("unknown sync strategy")
 
     elif project.has_requirements_file():
         logging.info("building image for pip project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
-            dockerfile = build_pip_containerfile(project_root, base_image)
+            dockerfile = build_pip_containerfile(project, base_image)
         elif sync_strategy == RemoteSyncStrategy.CONTAINER:
-            dockerfile = build_pip_base_containerfile(project_root, base_image)
+            dockerfile = build_pip_base_containerfile(project, base_image)
         else:
             raise SystemError("unknown sync strategy")
 
     elif project.is_conda_project():
         logging.info("building image for conda project")
         if sync_strategy == RemoteSyncStrategy.IMAGE:
-            dockerfile = build_conda_containerfile(project_root, base_image)
+            dockerfile = build_conda_containerfile(project, base_image)
         elif sync_strategy == RemoteSyncStrategy.CONTAINER:
-            dockerfile = build_conda_base_containerfile(project_root, base_image)
+            dockerfile = build_conda_base_containerfile(project, base_image)
         else:
             raise SystemError("unknown sync strategy")
 
@@ -188,11 +184,8 @@ def build_dockerfile(
     return dockerfile
 
 
-def _add_repo_files(
-    dockerfile: Dockerfile,
-    scm: Optional[SCM] = None,
-) -> Dockerfile:
-    """Build a Dockerile for a Poetry project
+def add_repo_files(dockerfile: Dockerfile, scm: Optional[SCM] = None) -> Dockerfile:
+    """Add repo files to dockerfile
 
     Args:
         dockerfile (Dockerfile): Dockerfile to add to
@@ -201,6 +194,7 @@ def _add_repo_files(
     Returns:
         Dockerfile: A Dockerfile
     """
+
     if scm is None:
         scm = SCM()
 
@@ -216,21 +210,16 @@ def _add_repo_files(
 
     for pkg, files in pkgs.items():
         if pkg != "":
-            dockerfile.copy(files, os.path.join(f"{REPO_ROOT}/", pkg + "/"))
+            dockerfile.copy(files, os.path.join(f"{CONTAINER_ROOT}/", pkg + "/"))
         else:
-            dockerfile.copy(files, os.path.join(f"{REPO_ROOT}/"))
-
-    # NOTE: there is likely a better way of doing this; copying the .git directory
-    # with the tar sync was causing errors, and it is needed for the algorithms to
-    # work currently
-    dockerfile.copy(".git", f"{REPO_ROOT}/.git/")
+            dockerfile.copy(files, os.path.join(f"{CONTAINER_ROOT}/"))
 
     return dockerfile
 
 
 def build_poetry_base_dockerfile(
     pyproject_dict: Dict[str, Any],
-    project_root: str,
+    project: Optional[Project],
     base_image: Optional[str] = None,
     dev_dependencies: bool = False,
     scm: Optional[SCM] = None,
@@ -239,7 +228,7 @@ def build_poetry_base_dockerfile(
 
     Args:
         pyproject_dict (Dict[str, Any]): a parsed pyproject file
-        project_root (str): Root of the python project
+        project (Project): Project to use. Defaults to None.
         base_image (str, optional): base image to use. Defaults to None.
         dev_dependencies (bool, optional): whether to install dev dependencies. Defaults to False.
         scm (SCM, optional): SCM to use. Defaults to None.
@@ -249,6 +238,9 @@ def build_poetry_base_dockerfile(
     """
     if scm is None:
         scm = SCM()
+
+    if project is None:
+        project = Project()
 
     # check for poetry keys
     try:
@@ -275,19 +267,18 @@ def build_poetry_base_dockerfile(
     dockerfile.env("POETRY_NO_INTERACTION", "1")
     # dockerfile.env("POETRY_VIRTUALENVS_CREATE", "false")
 
-    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{REPO_ROOT}:{project_root}")
+    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{CONTAINER_ROOT}")
 
     # apt install -y libffi-dev
     dockerfile.run("apt update && apt install -y watchdog git curl")
     dockerfile.run("pip install poetry==1.2.0 && poetry --version")
     # dockerfile.run("pip uninstall -y setuptools && pip install setuptools")
 
-    dockerfile.workdir(project_root)
-    rel_proj_root = scm.rel_project_path()
+    dockerfile.workdir(CONTAINER_ROOT)
 
     dockerfile.copy(
-        f"{os.path.join(rel_proj_root, 'poetry.lock')} {os.path.join(rel_proj_root, 'pyproject.toml')}",
-        f"{project_root}",
+        f"{os.path.join(project.rootpath, 'poetry.lock')} {os.path.join(project.rootpath, 'pyproject.toml')}",
+        f"{CONTAINER_ROOT}",
     )
     # dockerfile.run("poetry run python -m pip install --upgrade setuptools")
 
@@ -303,7 +294,7 @@ def build_poetry_base_dockerfile(
 
 def build_poetry_dockerfile(
     pyproject_dict: Dict[str, Any],
-    project_root: str,
+    project: Optional[Project],
     base_image: Optional[str] = None,
     dev_dependencies: bool = False,
     scm: Optional[SCM] = None,
@@ -312,7 +303,7 @@ def build_poetry_dockerfile(
 
     Args:
         pyproject_dict (Dict[str, Any]): a parsed pyproject file
-        project_root (str): Root of the python project
+        project (Project): Project to use. Defaults to None.
         base_image (str, optional): base image to use. Defaults to None.
         dev_dependencies (bool, optional): whether to install dev dependencies. Defaults to False.
         scm (SCM, optional): SCM to use. Defaults to None.
@@ -320,22 +311,22 @@ def build_poetry_dockerfile(
     Returns:
         Dockerfile: A Containerfile
     """
-    if scm is None:
-        scm = SCM()
+    if project is None:
+        project = Project()
 
-    dockerfile = build_poetry_base_dockerfile(pyproject_dict, project_root, base_image, dev_dependencies, scm)
-    dockerfile = _add_repo_files(dockerfile, scm)
+    dockerfile = build_poetry_base_dockerfile(pyproject_dict, project, base_image, dev_dependencies, scm)
+    dockerfile.copy("./", CONTAINER_ROOT)
 
     return dockerfile
 
 
 def build_conda_base_containerfile(
-    project_root: str, base_image: Optional[str] = None, scm: Optional[SCM] = None
+    project: Optional[Project], base_image: Optional[str] = None, scm: Optional[SCM] = None
 ) -> Dockerfile:
     """Build a base Containerfile for a Conda project
 
     Args:
-        project_root (str): Root of project
+        project (Project): Project to use. Defaults to None.
         base_image (Optional[str], optional): Base image to use. Defaults to None.
         scm (Optional[SCM], optional): SCM to use. Defaults to None.
 
@@ -344,6 +335,9 @@ def build_conda_base_containerfile(
     """
     if scm is None:
         scm = SCM()
+
+    if project is None:
+        project = Project()
 
     dockerfile = Dockerfile()
 
@@ -364,13 +358,12 @@ def build_conda_base_containerfile(
         dockerfile.from_(base_image)
 
     # this needs to be project_root
-    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{REPO_ROOT}:{project_root}")
+    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{CONTAINER_ROOT}")
 
     dockerfile.run("apt update && apt install -y watchdog git curl")
 
-    dockerfile.workdir(project_root)
-    rel_proj_root = scm.rel_project_path()
-    dockerfile.copy(f"{os.path.join(rel_proj_root, 'environment.yml')}", f"{project_root}")
+    dockerfile.workdir(CONTAINER_ROOT)
+    dockerfile.copy("environment.yml", CONTAINER_ROOT)
 
     conda_yaml = load_conda_yaml()
     if "name" not in conda_yaml:
@@ -387,30 +380,30 @@ def build_conda_base_containerfile(
 
 
 def build_conda_containerfile(
-    project_root: str, base_image: Optional[str] = None, scm: Optional[SCM] = None
+    project: Optional[Project], base_image: Optional[str] = None, scm: Optional[SCM] = None
 ) -> Dockerfile:
     """Build a Containerfile for a Conda project
 
     Args:
-        project_root (str): Root of project
+        project (Project): Project to use. Defaults to None.
         base_image (Optional[str], optional): Base image to use. Defaults to None.
         scm (Optional[SCM], optional): SCM to use. Defaults to None.
 
     Returns:
         Dockerfile: A Containerfile
     """
-    dockerfile = build_conda_base_containerfile(project_root, base_image, scm)
-    dockerfile = _add_repo_files(dockerfile, scm)
+    dockerfile = build_conda_base_containerfile(project, base_image, scm)
+    dockerfile.copy("./", CONTAINER_ROOT)
     return dockerfile
 
 
 def build_pip_base_containerfile(
-    project_root: str, base_image: Optional[str] = None, scm: Optional[SCM] = None
+    project: Optional[Project], base_image: Optional[str] = None, scm: Optional[SCM] = None
 ) -> Dockerfile:
     """Build a base Containerfile for a Pip project
 
     Args:
-        project_root (str): Root of project
+        project (Project): Project to use. Defaults to None.
         base_image (Optional[str], optional): Base image to use. Defaults to None.
         scm (Optional[SCM], optional): SCM to use. Defaults to None.
 
@@ -437,13 +430,12 @@ def build_pip_base_containerfile(
     dockerfile.env("PIP_NO_CACHE_DIR", "off")
     dockerfile.env("PIP_DISABLE_PIP_VERSION_CHECK", "on")
 
-    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{REPO_ROOT}:{project_root}")
+    dockerfile.env("PYTHONPATH", f"${{PYTHONPATH}}:{CONTAINER_ROOT}")
 
     dockerfile.run("apt update && apt install -y watchdog git curl")
 
-    dockerfile.workdir(project_root)
-    rel_proj_root = scm.rel_project_path()
-    dockerfile.copy(f"{os.path.join(rel_proj_root, 'requirements.txt')}", f"{project_root}")
+    dockerfile.workdir(CONTAINER_ROOT)
+    dockerfile.copy("requirements.txt", CONTAINER_ROOT)
 
     dockerfile.run("python -m pip install -r requirements.txt")
 
@@ -453,39 +445,40 @@ def build_pip_base_containerfile(
 
 
 def build_pip_containerfile(
-    project_root: str, base_image: Optional[str] = None, scm: Optional[SCM] = None
+    project: Optional[Project], base_image: Optional[str] = None, scm: Optional[SCM] = None
 ) -> Dockerfile:
     """Build a Containerfile for a Pip project
 
     Args:
-        project_root (str): Root of project
+        project (Project): Project to use. Defaults to None.
         base_image (Optional[str], optional): Base image to use. Defaults to None.
         scm (Optional[SCM], optional): SCM to use. Defaults to None.
 
     Returns:
         Dockerfile: A Containerfile
     """
-    dockerfile = build_pip_base_containerfile(project_root, base_image, scm)
-    dockerfile = _add_repo_files(dockerfile, scm)
+    dockerfile = build_pip_base_containerfile(project, base_image, scm)
+    dockerfile.copy("./", CONTAINER_ROOT)
     return dockerfile
 
 
 def build_img(
     dockerfile: Dockerfile,
     sync_strategy: RemoteSyncStrategy,
-    image_repo: Optional[str] = None,
+    project: Optional[Project] = None,
+    img_repo: Optional[str] = None,
     tag: Optional[str] = None,
     docker_socket: Optional[str] = None,
     scm: Optional[SCM] = None,
     labels: Optional[Dict[str, str]] = None,
     tag_prefix: Optional[str] = None,
-    clean: bool = True,
+    clean: bool = False,
 ) -> ImageID:
     """Build image from Containerfile
 
     Args:
         dockerfile (Dockerfile): Dockerfile to use
-        image_repo (str, optional): repository name. Defaults to None.
+        img_repo (str, optional): Image repo uri. Defaults to None.
         tag (str, optional): tag for image. Defaults to None.
         docker_socket (str, optional): docker socket to use. Defaults to None.
         scm (SCM, optional): SCM to use. Defaults to None.
@@ -497,7 +490,10 @@ def build_img(
         ImageID: An ImageID
     """
 
-    dockerfile_path = write_dockerfile(dockerfile)
+    if not project:
+        project = Project()
+
+    write_dockerfile(dockerfile, project)
 
     if docker_socket is None:
         docker_socket = default_socket()
@@ -507,7 +503,7 @@ def build_img(
     if scm is None:
         scm = SCM()
 
-    image_id = img_id(sync_strategy, image_repo=image_repo, tag=tag, scm=scm, tag_prefix=tag_prefix)
+    image_id = img_id(sync_strategy, img_repo=img_repo, tag=tag, scm=scm, tag_prefix=tag_prefix)
 
     logging.info(f"building image using id '{image_id}'")
 
@@ -516,7 +512,7 @@ def build_img(
     progress: Optional[Progress] = Progress(transient=True)
     progress.start()  # type: ignore
     for line in cli.build(
-        path=os.path.dirname(dockerfile_path),
+        path=project.rootpath,
         rm=True,
         tag=image_id.ref(),
         dockerfile=MDL_DOCKERFILE_NAME,
@@ -563,8 +559,9 @@ def build_img(
             else:
                 continue
 
-    # if clean:
-    # delete_containerfile()
+    if clean:
+        delete_dockerfile(project)
+
     return image_id
 
 
@@ -580,13 +577,13 @@ def push_img(id: ImageID, docker_socket: Optional[str] = None, api_client: Optio
         docker_socket = default_socket()
 
     if api_client is None:
-        client = APIClient(base_url=docker_socket)
+        api_client = APIClient(base_url=docker_socket)
 
     logging.info("pushing docker image")
 
     with Progress() as progress:
         tasks: Dict[str, TaskID] = {}
-        for line in client.push(id.ref(), stream=True, decode=True):
+        for line in api_client.push(id.ref(), stream=True, decode=True):
             if "status" not in line:
                 continue
             if line["status"] != "Pushing":
@@ -607,6 +604,7 @@ def push_img(id: ImageID, docker_socket: Optional[str] = None, api_client: Optio
 
 def find_or_build_img(
     docker_socket: Optional[str] = None,
+    project: Optional[Project] = None,
     scm: Optional[SCM] = None,
     cfg: Optional[Config] = None,
     sync_strategy: RemoteSyncStrategy = RemoteSyncStrategy.CONTAINER,
@@ -622,6 +620,7 @@ def find_or_build_img(
 
     Args:
         docker_socket (str, optional): docker socket to use. Defaults to None.
+        project (Project, optional): Project to use
         scm (SCM, optional): SCM to use
         cfg (Config, optional): Config to use
         sync_strategy (RemoteSyncStrategy, optional): How to sync data
@@ -643,6 +642,9 @@ def find_or_build_img(
     if scm is None:
         scm = SCM()
 
+    if project is None:
+        project = Project()
+
     if cfg is None:
         cfg = Config()
 
@@ -662,31 +664,33 @@ def find_or_build_img(
 
     # if not then build
     logging.info("image not found locally... building")
-    dockerfile = build_dockerfile(command=command, sync_strategy=sync_strategy, dev_dependencies=dev_dependencies)
+    dockerfile = build_dockerfile(
+        project=project, command=command, sync_strategy=sync_strategy, dev_dependencies=dev_dependencies
+    )
 
-    image_id = build_img(dockerfile, sync_strategy, tag=tag, clean=clean, labels=labels, tag_prefix=tag_prefix)
+    image_id = build_img(
+        dockerfile, sync_strategy, project=project, tag=tag, clean=clean, labels=labels, tag_prefix=tag_prefix
+    )
     push_img(image_id)
 
     return image_id
 
 
-def img_command(container_path: str, scm: Optional[SCM] = None, project: Optional[Project] = None) -> List[str]:
+def img_command(rel_exec_path: str, project: Optional[Project] = None) -> List[str]:
     """Create the CMD for the image based on the project type
 
     Args:
-        container_path (str): Path to the executable
-        scm (Optional[SCM], optional): An optional SCM to pass. Defaults to None.
+        rel_exec_path (str): A relative exec path
         project (Optional[Project], optional): An optional Project to pass. Defaults to None.
 
     Returns:
         List[str]: A CMD list
     """
-    if scm is None:
-        scm = SCM()
     if project is None:
         project = Project()
 
-    mod_path = path_to_module(container_path, REPO_ROOT)
+    exec_path = os.path.join(CONTAINER_ROOT, rel_exec_path)
+    mod_path = path_to_module(exec_path, CONTAINER_ROOT)
 
     command = ["python", "-m", mod_path]
     if project.is_poetry_project():

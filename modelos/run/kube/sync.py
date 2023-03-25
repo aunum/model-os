@@ -18,7 +18,7 @@ from kubernetes.stream import stream
 from modelos.config import RemoteSyncStrategy
 from modelos.virtual.container.id import ImageID
 from modelos.scm import SCM
-from modelos.env.image.build import find_or_build_img, REPO_ROOT
+from modelos.env.image.build import find_or_build_img, CONTAINER_ROOT
 from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
     SYNC_SHA_LABEL,
@@ -247,7 +247,7 @@ def sync_repo_to_pod(
                 scm.all_files(absolute_paths=True),
                 pod_name,
                 namespace=namespace,
-                base_path=REPO_ROOT.lstrip("/"),
+                base_path=CONTAINER_ROOT.lstrip("/"),
                 label=True,
                 core_v1_api=core_v1_api,
                 scm=scm,
@@ -262,7 +262,7 @@ def sync_repo_to_pod(
             scm.all_files(absolute_paths=True),
             pod_name,
             namespace=namespace,
-            base_path=REPO_ROOT.lstrip("/"),
+            base_path=CONTAINER_ROOT.lstrip("/"),
             label=True,
             core_v1_api=core_v1_api,
             scm=scm,

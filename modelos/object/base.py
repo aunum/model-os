@@ -63,7 +63,7 @@ from unimport.main import Main as unimport_main
 
 from modelos.run.kube.sync import copy_file_to_pod
 from modelos.virtual.container.client import default_socket
-from modelos.env.image.build import REPO_ROOT, img_command, build_dockerfile
+from modelos.env.image.build import CONTAINER_ROOT, img_command, build_dockerfile
 from modelos.run.kube.pod_util import (
     REPO_SHA_LABEL,
     SYNC_SHA_LABEL,
@@ -78,7 +78,7 @@ from modelos.scm import SCM
 from modelos.virtual.container.registry import get_img_labels
 from modelos.run.kube.env import is_k8s_proc
 from modelos.run.kube.auth_util import ensure_cluster_auth_resources
-from modelos.env.image.build import img_id, path_to_module
+from modelos.env.image.build import path_to_module
 from modelos.env.version import env_hash
 from modelos.object.info import ObjectInfo, ObjectArtifactInfo
 from modelos.run.client import get_client_id
@@ -102,15 +102,16 @@ from modelos.object.repo.uri import remote_objrepo_from_uri
 from modelos.object.version import interface_hash, calc_schema_bump, class_hash, instance_hash
 from modelos.object.id import ObjectID, Version
 from modelos.object.schema import obj_api_schema
-from modelos.pkg import Pkg, PkgID
+from modelos.pkg import PkgID
 from modelos.util.source import get_source
 from modelos.util.version import bump_version, VersionBump, merge_bump
-from modelos.pkg.scheme.python import PYTHON_SCHEME
+from modelos.pkg.scheme.python import PYTHON_SCHEME, module_name
 from modelos.project import Project, obj_rel_path, obj_module_path
 from modelos.util.path import get_root_dir
-from modelos.object.pkg import get_cls_modules, repackage, build_setup, build_requirements
+from modelos.object.pkg import get_cls_modules, repackage, build_setup, build_requirements, ClientPkg, ObjectPkg
 from modelos.util.notebook import is_notebook_cls
 from modelos.util.notebook.extract import extract_cls_to_file, extracted_file_name
+from modelos.object.meta import LocalMeta
 
 
 SERVER_PORT = "8080"
@@ -400,7 +401,7 @@ class Client(Kind):
             self.scm.all_files(absolute_paths=True),
             pod_name,
             namespace=namespace,
-            base_path=REPO_ROOT.lstrip("/"),
+            base_path=CONTAINER_ROOT.lstrip("/"),
             label=True,
             core_v1_api=self.core_v1_api,
             scm=self.scm,
@@ -575,13 +576,13 @@ class Client(Kind):
 
     @classmethod
     def versions(
-        cls: Type[C], repo: Optional[str] = None, cfg: Optional[Config] = None, compatible: bool = True
+        cls: Type[C], repo: Optional[str] = None, config: Optional[Config] = None, compatible: bool = True
     ) -> List[str]:
         """Find all versions of this type
 
         Args:
             repo (str, optional): Repo to check
-            cfg (Config, optional): Config to use
+            config (Config, optional): Config to use. Defaults to None.
             compatible (bool, optional): Return only compatible versions. Defaults to True
 
         Returns:
@@ -595,9 +596,11 @@ class Client(Kind):
             version = Version(hash)
 
         if not repo:
-            repo = Config().get_image_repo()
+            if not config:
+                config = Config()
+            repo = config.get_obj_repo()
             if not repo:
-                raise ValueError("could not find img repo to use")
+                raise ValueError("must provide 'repo' parameter or set 'obj_repo' in config")
 
         obj_repo = remote_objrepo_from_uri(repo)
 
@@ -661,8 +664,8 @@ class Client(Kind):
         Returns:
             Dict[str, Any]: Object schema
         """
-        # needs to come from the image
-        raise NotImplementedError()
+        schema = obj_api_schema(cls)
+        return schema
 
     def notebook(self) -> None:
         """Launch a notebook for the object"""
@@ -748,6 +751,28 @@ class Client(Kind):
             dir (str): Directory to the artifacts
         """
         raise NotImplementedError()
+
+    @classmethod
+    def _short_name(cls) -> str:
+        """Short name for the resource
+
+        Returns:
+            str: A short name
+        """
+        if cls.__name__.endswith("Client"):
+            return cls.__name__.removesuffix("Client").lower()
+        return cls.__name__.lower()
+
+    @classmethod
+    def local_metadata(cls) -> LocalMeta:
+        """Local metadata about the object
+
+        Returns:
+            LocalMeta: Object metadata
+        """
+        sf = inspect.getfile(cls)
+        meta = LocalMeta.read(os.path.join(os.path.dirname(sf), LocalMeta.filename(cls._short_name())))
+        return meta
 
     @classmethod
     def store_cls(
@@ -1129,6 +1154,7 @@ class Object(Kind):
     schemas: SchemaGenerator
 
     scm: SCM = SCM()
+    project: Project = Project()
     _lock: Optional[Lock] = None
 
     @classmethod
@@ -1191,6 +1217,10 @@ class Object(Kind):
     @nolock
     @classmethod
     def short_name(cls) -> str:
+        return cls._short_name()
+
+    @classmethod
+    def _short_name(cls) -> str:
         """Short name for the resource
 
         Returns:
@@ -1239,7 +1269,7 @@ class Object(Kind):
         if is_k8s_proc():
             server_filepath = self._container_path(server_filepath)
 
-        version = build_inst_version_hash(self)
+        version = build_inst_version_hash(self._client_cls(), self._base_class())
 
         return ObjectInfo(
             name=self.name(),
@@ -1402,6 +1432,285 @@ class Object(Kind):
         """
         raise NotImplementedError()
 
+    @classmethod
+    @local
+    def pkg_client(
+        cls,
+        version: Optional[str] = None,
+        repo: Optional[str] = None,
+        config: Optional[Config] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        project: Optional[Project] = None,
+        scm: Optional[SCM] = None,
+    ) -> ClientPkg:
+        """Package a client for the class
+
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
+            labels (Dict[str, str], optional): Labels to use. Defaults to None
+            tags (List[str], optional): Tags to use. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            scm (SCM, optional): SCM to use. Defaults to None.
+
+        Returns:
+            ClientPkg: Client package
+        """
+        if not repo:
+            if not config:
+                config = Config()
+            repo = config.get_pkg_repo()
+            if not repo:
+                raise ValueError("could not find pkg repo to use")
+
+        remote_source = ""
+        if not scm:
+            try:
+                scm = SCM()
+                remote_source = scm.git_repo.remote().url
+            except Exception:
+                pass
+
+        if not project:
+            project = Project()
+
+        if not version:
+            version = interface_hash(cls.schema())
+
+        if not labels:
+            labels = {}
+
+        labels.update(cls.labels())
+
+        obj_path = obj_rel_path(cls)
+        mod_root_dir = get_root_dir(obj_path)
+
+        pkg_name = f"{cls.short_name()}-client"
+
+        client_cls = cls._client_cls()
+        deps = get_cls_modules(client_cls)
+
+        py_info = sys.version_info
+        py_ver = f"{py_info.major}.{py_info.minor}.{py_info.micro}"
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            print("created temporary directory", tmpdirname)
+            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
+            pkg_dir = os.path.join(project_dir, pkg_name)
+            mod_dir = os.path.join(pkg_dir, mod_root_dir)
+
+            os.makedirs(pkg_dir, exist_ok=True)
+            root_init = os.path.join(pkg_dir, "__init__.py")
+
+            shutil.copytree(project.rootpath, pkg_dir)
+            print(os.listdir(project_dir))
+            print(os.listdir(pkg_dir))
+
+            client_mod = obj_module_path(client_cls)
+            with open(root_init, "w+") as f:
+                f.write(f"from .{client_mod} import {cls.__name__}Client")
+
+            req_path = os.path.join(project_dir, "requirements.txt")
+            with open(req_path, "w+") as f:
+                s = build_requirements(deps)
+                f.write(s)
+
+            mod_name = module_name(pkg_name, version)
+
+            setup_path = os.path.join(project_dir, "setup.py")
+            with open(setup_path, "w+") as f:
+                setup_str = build_setup(
+                    mod_name,
+                    version,
+                    remote_source,
+                    remote_source,
+                    remote_source,
+                    remote_source,
+                    "ModelOS",
+                    cls.description(),
+                    py_ver,
+                )
+                f.write(setup_str)
+
+            repackage(mod_dir, pkg_name, mod_root_dir)
+
+            client_pkg = ClientPkg(
+                name=pkg_name,
+                dir_path=tmpdirname,
+                description=cls.description(),
+                version=version,
+                scheme=PYTHON_SCHEME,
+                labels=labels,
+                tags=tags,
+                remote=repo,
+                config=config,
+            )
+
+            return client_pkg
+
+    @classmethod
+    @local
+    def pkg_server(
+        cls,
+        version: Optional[str] = None,
+        repo: Optional[str] = None,
+        config: Optional[Config] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        project: Optional[Project] = None,
+        scm: Optional[SCM] = None,
+    ) -> ObjectPkg:
+        """Package a server for the class
+
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
+            labels (Dict[str, str], optional): Labels to use. Defaults to None
+            tags (List[str], optional): Tags to use. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            scm (SCM, optional): SCM to use. Defaults to None.
+
+        Returns:
+            ObjectPkg: An object pkg
+        """
+        if not repo:
+            if not config:
+                config = Config()
+            repo = config.get_pkg_repo()
+            if not repo:
+                raise ValueError("could not find pkg repo to use")
+
+        remote_source = ""
+        if not scm:
+            try:
+                scm = SCM()
+                remote_source = scm.git_repo.remote().url
+            except Exception:
+                pass
+
+        if not project:
+            project = Project()
+
+        if not version:
+            version = build_obj_version_hash(cls._client_cls(), cls._base_class())
+
+        if not labels:
+            labels = {}
+
+        labels.update(cls.labels())
+
+        client_version = interface_hash(cls.schema())
+        labels["client-version"] = client_version
+
+        obj_path = obj_rel_path(cls)
+        mod_root_dir = get_root_dir(obj_path)
+
+        pkg_name = f"{cls.short_name()}-obj"
+
+        client_cls = cls._client_cls()
+        deps = get_cls_modules(client_cls)
+
+        py_info = sys.version_info
+        py_ver = f"{py_info.major}.{py_info.minor}.{py_info.micro}"
+
+        with tempfile.TemporaryDirectory() as tmpdirname:
+            print("created temporary directory", tmpdirname)
+
+            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
+            pkg_dir = os.path.join(project_dir, pkg_name)
+            mod_dir = os.path.join(pkg_dir, mod_root_dir)
+
+            os.makedirs(pkg_dir, exist_ok=True)
+            root_init = os.path.join(pkg_dir, "__init__.py")
+
+            shutil.copytree(project.rootpath, pkg_dir)
+            print(os.listdir(project_dir))
+            print(os.listdir(pkg_dir))
+
+            obj_mod = obj_module_path(cls)
+            client_mod = obj_module_path(client_cls)
+            with open(root_init, "a") as f:
+                f.write(f"from {client_mod} import {cls.__name__}Client")
+                f.write(f"from {obj_mod} import {cls.__name__}")
+
+            req_path = os.path.join(project_dir, "requirements.txt")
+            with open(req_path, "w+") as f:
+                s = build_requirements(deps)
+                f.write(s)
+
+            setup_path = os.path.join(project_dir, "setup.py")
+
+            mod_name = module_name(pkg_name, version)
+            with open(setup_path, "w+") as f:
+                setup_str = build_setup(
+                    mod_name,
+                    version,
+                    remote_source,
+                    remote_source,
+                    remote_source,
+                    remote_source,
+                    "ModelOS",
+                    cls.description(),
+                    py_ver,
+                )
+                f.write(setup_str)
+
+            repackage(mod_dir, pkg_name, mod_root_dir)
+
+            obj_pkg = ObjectPkg(
+                name=pkg_name,
+                dir_path=project.rootpath,
+                description=cls.description(),
+                version=version,
+                scheme=PYTHON_SCHEME,
+                labels=labels,
+                tags=tags,
+                remote=repo,
+                config=config,
+            )
+        return obj_pkg
+
+    @local
+    def pkg_instance(
+        self,
+        version: Optional[str] = None,
+        repo: Optional[str] = None,
+        config: Optional[Config] = None,
+        labels: Optional[Dict[str, str]] = None,
+        tags: Optional[List[str]] = None,
+        project: Optional[Project] = None,
+        scm: Optional[SCM] = None,
+        save: bool = True,
+    ) -> ObjectPkg:
+        """Package the object instance
+
+        Args:
+            version (str, optional): Version of the package. Defaults to None.
+            repo (str, optional): Package repo to publish to. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
+            labels (Dict[str, str], optional): Labels to use. Defaults to None
+            tags (List[str], optional): Tags to use. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            scm (SCM, optional): SCM to use. Defaults to None.
+            save (bool, optional): Whether to save. Defaults to True.
+
+        Returns:
+            ObjectPkg: An object pkg
+        """
+
+        if save:
+            self.save()
+
+        if not version:
+            version = build_inst_version_hash(self._client_cls(), self._base_class())
+
+        return self.pkg_server(
+            version=version, repo=repo, config=config, labels=labels, tags=tags, project=project, scm=scm
+        )
+
     @local
     def publish(
         self,
@@ -1438,110 +1747,9 @@ class Object(Kind):
             project = Project()
 
         if not version:
-            version = build_inst_version_hash(self)
+            version = build_inst_version_hash(self._client_cls(), self._base_class())
 
-        client_version = interface_hash(self.schema())
-
-        obj_path = obj_rel_path(self)
-        mod_root_dir = get_root_dir(obj_path)
-
-        pkg_name = f"obj_{self.short_name()}_{version}".replace("-", "_").replace(".", "_")
-
-        client_cls = self._client_cls()
-        deps = get_cls_modules(client_cls)
-
-        py_info = sys.version_info
-        py_ver = f"{py_info.major}.{py_info.minor}.{py_info.micro}"
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            print("created temporary directory", tmpdirname)
-            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
-            pkg_dir = os.path.join(project_dir, pkg_name)
-            mod_dir = os.path.join(pkg_dir, mod_root_dir)
-
-            os.makedirs(pkg_dir, exist_ok=True)
-            root_init = os.path.join(pkg_dir, "__init__.py")
-
-            shutil.copytree(project.rootpath, pkg_dir)
-            print(os.listdir(project_dir))
-            print(os.listdir(pkg_dir))
-
-            client_mod = obj_module_path(client_cls)
-            with open(root_init, "w+") as f:
-                f.write(f"from .{client_mod} import {self.__class__.__name__}Client")
-
-            req_path = os.path.join(project_dir, "requirements.txt")
-            with open(req_path, "w+") as f:
-                s = build_requirements(deps)
-                f.write(s)
-
-            setup_path = os.path.join(project_dir, "setup.py")
-            with open(setup_path, "w+") as f:
-                setup_str = build_setup(
-                    pkg_name,
-                    client_version,
-                    "",
-                    "",
-                    "",
-                    "",
-                    "mdl",
-                    self.description(),
-                    py_ver,
-                )
-                f.write(setup_str)
-
-            repackage(mod_dir, pkg_name, mod_root_dir)
-
-            client_pkg = Pkg(
-                name=f"{self.short_name()}-client",
-                dir_path=tmpdirname,
-                description=self.description(),
-                version=client_version,
-                scheme=PYTHON_SCHEME,
-                labels=labels,
-                tags=tags,
-                remote=repo,
-                config=config,
-            )
-
-            client_pkg.push()
-
-        with tempfile.TemporaryDirectory() as tmpdirname:
-            print("created temporary directory", tmpdirname)
-            if save:
-                self.save()
-
-            project_dir = os.path.join(tmpdirname, pkg_name, pkg_name)
-            pkg_dir = os.path.join(project_dir, pkg_name)
-            mod_dir = os.path.join(pkg_dir, mod_root_dir)
-
-            os.makedirs(pkg_dir, exist_ok=True)
-            root_init = os.path.join(pkg_dir, "__init__.py")
-
-            shutil.copytree(project.rootpath, pkg_dir)
-            print(os.listdir(project_dir))
-            print(os.listdir(pkg_dir))
-
-            obj_mod = obj_module_path(self)
-            with open(root_init, "a") as f:
-                f.write(f"from {client_mod} import {self.__class__.__name__}Client")
-                f.write(f"from {obj_mod} import {self.__class__.__name__}")
-
-            obj_pkg = Pkg(
-                name=self.short_name(),
-                dir_path=project.rootpath,
-                description=self.description(),
-                version=version,
-                scheme=PYTHON_SCHEME,
-                labels=labels,
-                tags=tags,
-                remote=repo,
-                config=config,
-            )
-
-            obj_pkg.push()
-
-        return obj_pkg.id()
+        raise NotImplementedError()
 
     @local
     def sync(self) -> None:
@@ -1616,20 +1824,59 @@ class Object(Kind):
         return cls_package
 
     @classmethod
-    def _client_cls(cls: Type[O]) -> Type[Client]:
+    def _base_class(cls: Type[O]) -> Type[O]:
+        """Returns the base object class if it's a server class"""
+
+        if cls.__name__.endswith("Server"):
+            find_name = cls.__name__.removesuffix("Server")
+            for base in cls.mro():
+                if base.__name__ == find_name:
+                    return base
+        else:
+            return cls
+
+        raise SystemError("could not find base class")
+
+    @classmethod
+    def _client_cls(
+        cls: Type[O], version: Optional[str] = None, repo: Optional[str] = None, config: Optional[Config] = None
+    ) -> Type[Client]:
         """Class of the client for the resource
+
+        Args:
+            repo (Repo, optional): Repo to use. Defaults to None.
 
         Returns:
             Type[Client]: A client class for the server
         """
+        if not repo:
+            if not config:
+                config = Config()
+            repo = config.get_pkg_repo()
+            if not repo:
+                raise ValueError("could not find pkg repo to use")
+
+        obj_repo = remote_objrepo_from_uri(repo)
 
         if is_notebook_cls(cls):
             cls = cls._extract_and_load()
 
-        # TODO: need to generate this
-        cls._write_client_file()
+        # TODO; This hash may not be right if ran in the server
+        cls_hash = class_hash(cls._base_class())
 
-        cls._write_server_file()
+        should_write = False
+        try:
+            meta = cls.local_metadata()
+            if meta.cls_hash != cls_hash:
+                should_write = True
+
+        except Exception:
+            should_write = True
+
+        if should_write:
+            print("generating files")
+            cls._write_client_file()
+            cls._write_server_file()
 
         cls_package = cls._cls_pkg()
         if cls_package == "__main__":
@@ -1654,14 +1901,27 @@ class Object(Kind):
         # exec(f"from .{cls._client_file_name()} import {cls.__name__}Client")
         loc_copy = locals().copy()
         client_cls: Type[Client] = eval(f"mod.{cls.__name__}Client", loc_copy)
+
+        if not version:
+            version = build_obj_version_hash(client_cls, cls._base_class())
+
+        id = obj_repo.build_id(cls.short_name(), version)
+        uri = obj_repo.build_uri(id)
+        meta = LocalMeta(cls._short_name(), uri, cls_hash)
+        meta.write()
+
         return client_cls
 
-    def save(self, out_dir: str = "./artifacts") -> None:
+    def save(self, out_dir: str = "./artifacts", project: Optional[Project] = None) -> None:
         """Save the object
 
         Args:
             out_dir (str, optional): Directory to output the artiacts. Defaults to "./artifacts".
+            project (Project, optional): Project to use. Defaults to None.
         """
+        if project is None:
+            project = Project()
+
         os.makedirs(out_dir, exist_ok=True)
         out_path = os.path.join(out_dir, f"{self.short_name()}.pkl")
         with open(out_path, "wb") as f:
@@ -1669,11 +1929,11 @@ class Object(Kind):
 
         if is_k8s_proc():
             logging.info("building containerfile")
-            c = build_dockerfile(sync_strategy=RemoteSyncStrategy.IMAGE)
+            c = build_dockerfile(sync_strategy=RemoteSyncStrategy.IMAGE, project=project)
             logging.info("writing containerfile")
-            write_dockerfile(c)
+            write_dockerfile(c, project)
             logging.info("copying directory to build dir...")
-            shutil.copytree(REPO_ROOT, BUILD_MNT_DIR, dirs_exist_ok=True)
+            shutil.copytree(CONTAINER_ROOT, BUILD_MNT_DIR, dirs_exist_ok=True)
         return
 
     @classmethod
@@ -1772,6 +2032,8 @@ class Object(Kind):
         reuse: bool = True,
         hot: bool = False,
         uri: Optional[str] = None,
+        use_project: Optional[bool] = None,
+        config: Optional[Config] = None,
     ) -> Type[O]:
         """Create a client of the class, which will allow for the generation of instances remotely
 
@@ -1781,18 +2043,22 @@ class Object(Kind):
             dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             reuse (bool, optional): Whether to reuse existing processes. Defaults to True.
             hot (bool, optional): Hot reload code remotely
-            uri (bool, optional): URI of resource to use. If None will use the current class
+            uri (bool, optional): URI of resource to use. If None, it will use the current class
+            use_project (bool, optional): Whether to use the parent Python project if exists. Defaults to auto.
+            config (Config, optional): Config to use. Defaults to None
 
         Returns:
             Client: A client which can generate servers on object initialization
         """
+        if use_project is None:
+            pass
 
         if is_notebook_cls(cls):
             cls = cls._extract_and_load()
 
         if uri is None:
             client_cls = partialcls(
-                cls._client_cls(),
+                cls._client_cls(repo=repo, config=config),
                 repo=repo,
                 server=cls,
                 reuse=reuse,
@@ -1803,7 +2069,7 @@ class Object(Kind):
             )
         else:
             client_cls = partialcls(
-                cls._client_cls(),
+                cls._client_cls(repo=repo, config=config),
                 uri=uri,
                 reuse=reuse,
                 clean=clean,
@@ -1819,31 +2085,47 @@ class Object(Kind):
         cls,
         repo: Optional[str] = None,
         clean: bool = True,
-        dev_dependencies: bool = False,
         hot: bool = False,
+        labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
+        config: Optional[Config] = None,
     ) -> ObjectID:
         """Create an image from the server class that can be used to create servers from scratch
 
         Args:
             repo (Optional[str], optional): Repo to use. Defaults to none.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             hot (bool, optional): Whether to build an image for hot reloading. Defaults to false.
+            labels (Optional[Dict[str, str]], optional): Labels for the class Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
 
         Returns:
             ObjectID: An object ID
         """
+        if project is None:
+            project = cls.project
 
-        return cls._build_image(clean=clean, dev_dependencies=dev_dependencies, hot=hot, repo=repo)
+        if is_notebook_cls(cls):
+            cls = cls._extract_and_load()
+
+        return cls._build_image(clean=clean, hot=hot, repo=repo, project=project, labels=labels, config=config)
 
     @local
-    def store(self, repo: Optional[str] = None, dev_dependencies: bool = False, clean: bool = True) -> ObjectID:
+    def store(
+        self,
+        repo: Optional[str] = None,
+        clean: bool = True,
+        labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
+    ) -> ObjectID:
         """Create a server image with the saved artifact
 
         Args:
             repo (Optional[str], optional): Repo to use. Defaults to none.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean the generated files. Defaults to True.
+            labels (Optional[Dict[str, str]], optional): Labels for the object. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: An object ID
@@ -1853,8 +2135,9 @@ class Object(Kind):
 
         id = self._build_image(
             clean=clean,
-            dev_dependencies=dev_dependencies,
             repo=repo,
+            project=project,
+            labels=labels,
         )
         if clean:
             self.clean_artifacts()
@@ -1868,9 +2151,9 @@ class Object(Kind):
         version: Optional[str] = None,
         labels: Optional[Dict[str, str]] = None,
         tags: Optional[List[str]] = None,
-        dev_dependencies: bool = False,
         config: Optional[Config] = None,
         clean: bool = True,
+        project: Optional[Project] = None,
     ) -> ObjectID:
         """Release the package
 
@@ -1879,9 +2162,9 @@ class Object(Kind):
             version (str, optional): Version of the release. Defaults to auto-versioning
             labels (Optional[Dict[str, str]], optional): Labels for the package. Defaults to None.
             tags (Optional[List[str]], optional): Tags for the package. Defaults to None.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             config (Optional[Config], optional): Config for finding the repo. Defaults to None.
             clean (bool, optional): Whether to clean the generated files. Defaults to True.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: ID of the object
@@ -1890,9 +2173,12 @@ class Object(Kind):
         if not repo:
             if not config:
                 config = Config()
-            repo = config.get_image_repo()
+            repo = config.get_obj_repo()
             if not repo:
-                raise ValueError("could not find img repo to use")
+                raise ValueError("must provide 'repo' parameter or set 'obj_repo' in config")
+
+        if project is None:
+            project = self.project
 
         obj_repo = remote_objrepo_from_uri(repo)
         obj_schema = self.schema()
@@ -1943,9 +2229,9 @@ class Object(Kind):
         id = self._build_image(
             labels=info.flat_labels(),
             clean=clean,
-            dev_dependencies=dev_dependencies,
             repo=repo,
             version=version,
+            project=project,
         )
         if clean:
             self.clean_artifacts()
@@ -1954,11 +2240,12 @@ class Object(Kind):
 
     @classmethod
     @local
-    def latest(cls, repo: Optional[str] = None) -> Optional[str]:
+    def latest(cls, repo: Optional[str] = None, config: Optional[Config] = None) -> Optional[str]:
         """Latest release
 
         Args:
             repo (Optional[str], optional): Repo to use. Defaults to None.
+            config (Optional[Config], optional): Config to use. Defaults to None.
 
         Raises:
             ValueError: If not repo can be found
@@ -1967,9 +2254,11 @@ class Object(Kind):
             Optional[str]: Latest release if present
         """
         if not repo:
-            repo = Config().get_image_repo()
+            if not config:
+                config = Config()
+            repo = config.get_obj_repo()
             if not repo:
-                raise ValueError("could not find img repo to use")
+                raise ValueError("must provide 'repo' parameter or set 'obj_repo' in config")
 
         obj_repo = remote_objrepo_from_uri(repo)
         latest = obj_repo.latest(cls.short_name())
@@ -1977,40 +2266,64 @@ class Object(Kind):
         return latest
 
     @classmethod
-    def _container_path(cls, local_path: str) -> str:
+    def _container_path(cls, local_path: str, project: Optional[Project] = None) -> str:
+        if project is None:
+            project = cls.project
+
         path = Path(local_path)
-        repo_root = Path(str(cls.scm.git_repo.working_dir))
+        repo_root = Path(project.rootpath)
         root_relative = path.relative_to(repo_root)
-        container_path = Path(REPO_ROOT).joinpath(root_relative)
+        container_path = Path(CONTAINER_ROOT).joinpath(root_relative)
         return str(container_path)
+
+    @classmethod
+    def local_metadata(cls) -> LocalMeta:
+        """Local metadata about the object
+
+        Returns:
+            LocalMeta: Object metadata
+        """
+        sf = inspect.getfile(cls._base_class())
+        meta = LocalMeta.read(os.path.join(os.path.dirname(sf), LocalMeta.filename(cls._short_name())))
+        return meta
 
     @classmethod
     def _build_image(
         cls,
         labels: Optional[Dict[str, str]] = None,
-        clean: bool = True,
-        dev_dependencies: bool = False,
+        clean: bool = False,
         repo: Optional[str] = None,
         hot: bool = False,
         version: Optional[str] = None,
+        project: Optional[Project] = None,
+        config: Optional[Config] = None,
     ) -> ObjectID:
         """Build a generic image for a server
 
         Args:
             labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
-            clean (bool, optional): Whether to clean generated files. Defaults to True.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
+            clean (bool, optional): Whether to clean generated files. Defaults to False.
             repo (Optional[str], optional): Repo to use. Defaults to none.
             hot (bool, optional): Whether to hot sync code. Defaults to False.
             version (str, optional): Version to override. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
+            config (Config, optional): Config to use. Defaults to None.
 
         Returns:
             ObjectID: ID of the object
         """
+        if is_notebook_cls(cls):
+            cls = cls._extract_and_load()
+
         if not repo:
-            repo = Config().get_image_repo()
+            if not config:
+                config = Config()
+            repo = config.get_obj_repo()
             if not repo:
-                raise ValueError("could not find img repo to use")
+                raise ValueError("must provide 'repo' parameter or set 'obj_repo' in config")
+
+        if project is None:
+            project = cls.project
 
         # write the server file somewhere we can find it
         server_filepath = cls._write_server_file()
@@ -2029,15 +2342,18 @@ class Object(Kind):
             base_labels[HOT_LABEL] = "true"
 
         if not version:
-            version = build_obj_version_hash(cls)
+            version = build_obj_version_hash(cls._client_cls(), cls._base_class())
 
         obj_repo = remote_objrepo_from_uri(repo)
-        cmd = img_command(str(server_container_path))
+        cmd = img_command(str(server_container_path), project)
 
-        id = obj_repo.find_or_build(cls.short_name(), version, cmd, dev_dependencies, clean, base_labels)
+        print("building image for cls: ", cls.__name__, cls)
+
+        id = obj_repo.find_or_build(cls.short_name(), version, cmd, clean, base_labels, project=project)
 
         if clean:
             os.remove(server_filepath)
+            os.remove(client_filepath)
 
         return id
 
@@ -2056,7 +2372,7 @@ class Object(Kind):
 
     def _reload_dirs(self) -> Dict[str, str]:
         pkgs: Dict[str, str] = {}
-        for fp in self.scm.all_files():
+        for fp in self.project.all_files():
             dir = os.path.dirname(fp)
             pkgs[dir] = ""
 
@@ -2098,13 +2414,13 @@ class Object(Kind):
     @classmethod
     @local
     def versions(
-        cls: Type[O], repo: Optional[str] = None, cfg: Optional[Config] = None, compatible: bool = True
+        cls: Type[O], repo: Optional[str] = None, config: Optional[Config] = None, compatible: bool = True
     ) -> List[str]:
         """Find all versions of this type
 
         Args:
             repo (str, optional): Repo to check. Defaults to None
-            cfg (Config, optional): Config to use. Defaults to None
+            config (Config, optional): Config to use. Defaults to None
             compatible (bool, optional): Whether to only return compatible resources. Defaults to True
 
         Returns:
@@ -2118,9 +2434,11 @@ class Object(Kind):
             version = Version(hash)
 
         if not repo:
-            repo = Config().get_image_repo()
+            if not config:
+                config = Config()
+            repo = config.get_obj_repo()
             if not repo:
-                raise ValueError("could not find img repo to use")
+                raise ValueError("must provide 'repo' parameter or set 'obj_repo' in config")
 
         obj_repo = remote_objrepo_from_uri(repo)
 
@@ -2736,7 +3054,7 @@ if __name__ == "__main__":
 
     @classmethod
     def _server_file_name(cls) -> str:
-        return f"{cls.short_name()}_server"
+        return f"{cls.short_name()}.server"
 
     @classmethod
     def _server_filepath(cls) -> str:
@@ -3365,6 +3683,10 @@ if __name__ == "__main__":
                 client_fn = f"""
     {fin_sig}
         {doc}
+
+        meta = self.metadata()
+        self.uri = meta.uri
+
         ClientOpts = OptsBuilder[Opts].build(self.__class__)
         opts = ClientOpts({super_joined})  # type: ignore
         super().__init__(opts=opts, **kwargs)
@@ -3444,12 +3766,8 @@ if __name__ == "__main__":
             """
             client_fns.append(client_fn)
 
-        # you are here
-        # We need to do a conditional import of __main__ based on whether the resource file is __main__
         imports_joined = "\n".join(import_statements.keys())
         client_fns_joined = "".join(client_fns)
-
-        server_uri = img_id(strategy=RemoteSyncStrategy.IMAGE, tag_prefix=f"{cls.short_name().lower()}-")
 
         m = importlib.import_module(cls.__module__)
         if m.__file__ is None:
@@ -3489,8 +3807,6 @@ if get_path_executed_script() == Path(os.path.dirname(__file__)).joinpath(Path('
 class {cls.__name__}Client(Client):
     \"""A resource client for {cls.__name__}\"""
 
-    uri: str = "{server_uri}"
-
 {client_fns_joined}
 
     def _super_init(self, uri: str) -> None:
@@ -3507,7 +3823,7 @@ class {cls.__name__}Client(Client):
 
     @classmethod
     def _client_file_name(cls) -> str:
-        return f"{cls.__name__.lower()}_client"
+        return f"{cls.__name__.lower()}.client"
 
     @classmethod
     def _client_filepath(cls) -> str:

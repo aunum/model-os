@@ -1,5 +1,7 @@
 from typing import Any, get_type_hints, get_args, Optional, Dict, Type
 import inspect
+from types import NoneType
+import logging
 
 from modelos.object.encoding import is_first_order, is_dict, is_enum, is_tuple, is_optional, is_list, is_union
 
@@ -28,6 +30,10 @@ def build_json_schema(obj: Any, default: Optional[Any] = None, sort: bool = True
     Returns:
         dict: A JSON schema representation of the object
     """
+    print("obj: ", obj)
+    if obj is None or obj == NoneType:
+        return {}
+
     if is_first_order(obj):
         out = type_map[obj].copy()
         if default:
@@ -76,6 +82,7 @@ def build_json_schema(obj: Any, default: Optional[Any] = None, sort: bool = True
         args = get_args(obj)
 
         if sort:
+            print("args: ", args)
             args = sorted(args)  # type: ignore
 
         items = []
@@ -106,7 +113,7 @@ def build_json_schema(obj: Any, default: Optional[Any] = None, sort: bool = True
         props = {}
         opts = []
         if sort:
-            annots = dict(sorted(annots.items())).items()  # type: ignore
+            annots = dict(sorted(annots.items()))  # type: ignore
 
         for nm, typ in annots.items():
             prop = build_json_schema(typ)
@@ -126,7 +133,7 @@ def build_json_schema(obj: Any, default: Optional[Any] = None, sort: bool = True
         return ret
 
     else:
-        print(f"skipping '{obj}' as it doesn't know who to serialize")
+        logging.warning(f"skipping serialization of unsupported type: '{obj}' type: '{type(obj)}'")
         return {}
 
 
@@ -148,13 +155,14 @@ def obj_api_schema(obj: Type, sort: bool = True) -> dict:
         fns = sorted(fns)
 
     for name, fn in fns:
+        print("fn name: ", fn)
         if name.startswith("_"):
             continue
 
         req_props = {}
         required = []
 
-        sig = inspect.signature(fn)
+        sig = inspect.signature(fn, eval_str=True, follow_wrapped=True)
         params = sig.parameters.items()
 
         if sort:
@@ -170,6 +178,7 @@ def obj_api_schema(obj: Type, sort: bool = True) -> dict:
             else:
                 required.append(k)
 
+            print("annotation: ", v.annotation)
             schema = build_json_schema(v.annotation, default)
             req_props[k] = schema
 
@@ -180,15 +189,25 @@ def obj_api_schema(obj: Type, sort: bool = True) -> dict:
         hints = get_type_hints(fn)
 
         ret_schema = build_json_schema(hints["return"])
-        if ret_schema["type"] != "object":
-            ret_schema = {"type": "object", "properties": {"value": ret_schema}}
 
-        route = {
-            "post": {
-                "requestBody": {"content": {"application/json": {"schema": req_schema}}},
-                "responses": {"200": {"content": {"application/json": {"schema": ret_schema}}}},
+        if not ret_schema:
+            route = {
+                "post": {
+                    "requestBody": {"content": {"application/json": {"schema": req_schema}}},
+                    "responses": {"200": {"description": "ok"}},
+                }
             }
-        }
+
+        else:
+            if ret_schema["type"] != "object":
+                ret_schema = {"type": "object", "properties": {"value": ret_schema}}
+
+            route = {
+                "post": {
+                    "requestBody": {"content": {"application/json": {"schema": req_schema}}},
+                    "responses": {"200": {"content": {"application/json": {"schema": ret_schema}}}},
+                }
+            }
 
         paths[f"/{name}"] = route
 

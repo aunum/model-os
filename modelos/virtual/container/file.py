@@ -3,9 +3,8 @@ import json
 import os
 import logging
 
-import git
-
 from modelos.scm import SCM
+from modelos.project import Project
 
 MDL_DOCKERFILE_NAME = "Dockerfile.mdl"
 
@@ -96,25 +95,21 @@ class Dockerfile:
         return "\n".join(self._statements)
 
 
-def dockerfile_path() -> str:
-    # should we change this to project root? https://github.com/aunum/arc/issues/18
-    repo = git.Repo(".", search_parent_directories=True)
-    root_repo_path = repo.working_tree_dir
-
-    return os.path.join(str(root_repo_path), MDL_DOCKERFILE_NAME)
+def dockerfile_path(project: Project) -> str:
+    return os.path.join(Project.rootpath, MDL_DOCKERFILE_NAME)
 
 
-def write_dockerfile(c: Dockerfile) -> str:
-    delete_dockerfile()
-    path = dockerfile_path()
+def write_dockerfile(c: Dockerfile, project: Project) -> str:
+    delete_dockerfile(project)
+    path = dockerfile_path(project)
     logging.info(f"writing dockerfile to path: {path}")
     with open(path, "w") as f:
         f.write(str(c))
     return path
 
 
-def delete_dockerfile() -> None:
-    path = dockerfile_path()
+def delete_dockerfile(project: Project) -> None:
+    path = dockerfile_path(project)
     logging.info(f"deleting generated dockerfile: {path}")
     try:
         os.remove(path)

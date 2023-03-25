@@ -7,6 +7,91 @@ from importlib.metadata import version
 import inspect
 
 from modelos.object.encoding import is_first_order, is_list, is_dict, is_tuple, is_union, is_enum
+from modelos.pkg.scheme.python import PythonPkg
+from modelos.config import Config
+from modelos.env.image.build import img_command
+from modelos.object.repo.uri import remote_objrepo_from_uri
+from .id import ObjectID
+
+
+class ClientPkg(PythonPkg):
+    """A package for an object client"""
+
+    def load(self) -> Any:  # TODO: this should be generic?
+        """Load the client class dynamically
+
+        Returns:
+            Any: A client class
+        """
+        raise NotImplementedError()
+
+
+class ObjectPkg(PythonPkg):
+    """A package for an object"""
+
+    exec_path: Optional[str] = None
+
+    def load(self) -> Any:  # TODO: this should be generic?
+        """Load the object dynamically
+
+        Returns:
+            Any: A client class
+        """
+        raise NotImplementedError()
+
+    def build(self, obj_repo: Optional[str] = None, labels: Optional[Dict[str, str]] = None) -> ObjectID:
+        """Build the package into an executable
+
+        Args:
+            obj_repo (Optional[str], optional): Object repo to use. Defaults to None.
+            labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
+
+        Returns:
+            ObjectID: An Object ID
+        """
+        if not obj_repo:
+            obj_repo = Config().get_obj_repo()
+            if not obj_repo:
+                raise ValueError("could not find img repo to use")
+
+        if self.exec_path is None:
+            raise ValueError("Must set the exec_path property when building an image")
+
+        project = self.project()
+        repo = remote_objrepo_from_uri(obj_repo)
+        cmd = img_command(self.exec_path, project)
+
+        id = self.id()
+        obj_id = repo.build(id.name, id.version, cmd, labels=labels, project=project)
+
+        return obj_id
+
+    def find_or_build(self, obj_repo: Optional[str] = None, labels: Optional[Dict[str, str]] = None) -> ObjectID:
+        """Find or build the package into an executable
+
+        Args:
+            obj_repo (Optional[str], optional): Object repo to use. Defaults to None.
+            labels (Optional[Dict[str, str]], optional): Labels to add. Defaults to None.
+
+        Returns:
+            ObjectID: An Object ID
+        """
+        if not obj_repo:
+            obj_repo = Config().get_obj_repo()
+            if not obj_repo:
+                raise ValueError("could not find img repo to use")
+
+        if self.exec_path is None:
+            raise ValueError("Must set the exec_path property when building an image")
+
+        project = self.project()
+        repo = remote_objrepo_from_uri(obj_repo)
+        cmd = img_command(self.exec_path, self.project())
+
+        id = self.id()
+        obj_id = repo.find_or_build(id.name, id.version, cmd, labels=labels, project=project)
+
+        return obj_id
 
 
 def is_same_project(mod_a: str, mod_b: str) -> bool:
@@ -281,5 +366,6 @@ setup(
     maintainer="{maintainer}",
     description="{description}",
     python_requires=">={python_version}",
+    packages=[{name}],
 )
     """

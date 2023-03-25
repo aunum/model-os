@@ -670,7 +670,7 @@ class Pkg:
                 raise ValueError(
                     "could not find a configured repo url, must supply the `repo` parameter, "
                     + "or set either $MDL_PKG_REPO,"
-                    + " add `tool.modelos.image_repo` to pyproject.toml, or add `pkg_repo` to mdl.yaml"
+                    + " add `tool.modelos.img_repo` to pyproject.toml, or add `pkg_repo` to mdl.yaml"
                 )
         if isinstance(remote, str):
             remote = remote_pkgrepo_from_uri(remote)

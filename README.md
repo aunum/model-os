@@ -5,16 +5,82 @@ An operating system for machine learning
 ```
 pip install model-os
 ```
+> **_NOTE:_**  ModelOS is pre-alpha and under heavy development, expect breakage
 
-## Concept
+ModelOS requires a working Kubernetes cluster, to get a local one try [KinD](https://kind.sigs.k8s.io/)
+## Concepts
+ModelOS adds capabilities to Python objects, it can help you:
+
+* __Run__ objects remotely
+* __Store__ objects with their state for later use
+* __Share__ objects with teammates or the public
+* __Combine__ objects in a distributed manner
+* __Access__ objects from any language
+* __Publish__ objects as independently versioned packages
+* __Extract__ objects from notebooks
+* __Find__ objects based on tags and labels
+* __Visualize__ objects as they interact
+* __Version__ objects automatically based on their logic and state
 
 To understand the direction of the project see [our slides](https://docs.google.com/presentation/d/1U51kZ2KyljTgodxCfSrJDlEvKQQKLWMjFYaY0XI5c3M/edit?usp=sharing). 
 
-tl;dr [Ray](https://www.ray.io/) and [Huggingface](https://huggingface.co/) had a baby.
+tl;dr [Ray](https://www.ray.io/) meets [Huggingface](https://huggingface.co/)
+
+## Quick Start
+
+```python
+from mdl import Object
+
+# Inherit Object on any typed Python class
+class Foo(Object):
+
+    bar: int
+
+    def __init__(self, bar: int) -> None:
+        self.bar = bar
+
+    def echo(self, word: str) -> str:
+        return f"{self.bar} {word}"
+
+    def inc(self) -> None:
+        self.bar += 1
+
+# Create a client for the object capabale of spawning remote instances
+FooClient = Foo.client(repo="acme.org/ml-project")
+
+# Create a remote instance that only lives within the context
+with FooClient(10) as foo:
+
+    # Use the object just as you normally would
+    assert foo.echo("cats") == "10 cats"
+
+    # Update the object's state
+    foo.inc()
+
+    # Store the object
+    uri = foo.store()
+
+# Load the stored object as a remote process
+with Foo.from_uri(uri) as foo:
+
+    # Check that the state update was restored
+    assert foo.echo("cats") == "11 cats"
+
+    # Release the object, generating client and server packages
+    uri = foo.release()
+
+    # The release semver is automatically calculated
+    assert uri == "acme.org/ml-project:obj.foo.v1.2.3"
+
+# Dynamically load the object class at the given version
+Foo = load("acme.org/ml-project:obj.foo.v1.2.3")
+
+# Get the OpenAPI schema for the object
+Foo.schema()
+```
+See more [examples in docs](./examples/)
 
 ## Usage
-
-> **_NOTE:_**  ModelOS is pre-alpha and under heavy development, expect breakage
 
 ### Objects
 

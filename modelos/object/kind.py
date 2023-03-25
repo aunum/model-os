@@ -7,6 +7,7 @@ from modelos.object.opts import Opts
 from modelos.pkg import PkgID
 from .id import ObjectID
 from .info import ObjectInfo
+from .meta import LocalMeta
 
 OBJECT_URI_ENV = "OBJECT_URI"
 
@@ -71,6 +72,16 @@ class Kind(ABC):
 
         Returns:
             str: A URI for the process
+        """
+        pass
+
+    @classmethod
+    @abstractmethod
+    def local_metadata(cls) -> LocalMeta:
+        """Local metadata about the object
+
+        Returns:
+            LocalMeta: Local object metadata
         """
         pass
 

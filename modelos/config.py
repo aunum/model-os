@@ -27,7 +27,8 @@ class RemoteSyncStrategy(str, Enum):
 class Config:
     """General configuration for ModelOS"""
 
-    image_repo: Optional[str]
+    img_repo: Optional[str]
+    obj_repo: Optional[str]
     pkg_repo: Optional[str]
     docker_socket: str
     kube_namespace: str
@@ -38,8 +39,9 @@ class Config:
 
     def __init__(
         self,
-        image_repo: Optional[str] = None,
+        obj_repo: Optional[str] = None,
         pkg_repo: Optional[str] = None,
+        img_repo: Optional[str] = None,
         docker_socket: Optional[str] = None,
         kube_namespace: Optional[str] = None,
         remote_sync_strategy: Optional[RemoteSyncStrategy] = None,
@@ -50,22 +52,24 @@ class Config:
         if has_mdl_file():
             self._mdl_file = load_mdl_file()
 
-        if image_repo is None:
-            self.image_repo = self.get_image_repo()
+        if img_repo is None:
+            self.img_repo = self.get_img_repo()
         else:
-            self.image_repo = image_repo
-        if self.image_repo is None or self.image_repo == "":
-            raise ValueError(
-                "could not find a configured registry url, please set either $MDL_IMAGE_REPO,"
-                + " add `tool.modelos.image_repo` to pyproject.toml, or add `image_repo` to mdl.yaml"
-            )
+            self.img_repo = img_repo
+
+        if obj_repo is None:
+            self.obj_repo = self.get_obj_repo()
+        else:
+            self.obj_repo = obj_repo
+        if self.obj_repo is None or self.obj_repo == "":
+            self.obj_repo = self.img_repo
 
         if pkg_repo is None:
             self.pkg_repo = self.get_pkg_repo()
         else:
             self.pkg_repo = pkg_repo
         if self.pkg_repo is None or self.pkg_repo == "":
-            self.pkg_repo = self.image_repo
+            self.pkg_repo = self.img_repo
 
         if docker_socket is None:
             self.docker_socket = self.get_docker_socket()
@@ -89,18 +93,35 @@ class Config:
         else:
             self.remote_sync_strategy = remote_sync_strategy
 
-    def get_image_repo(self) -> Optional[str]:
-        env = os.getenv("MDL_IMAGE_REPO")
+    def get_obj_repo(self) -> Optional[str]:
+        env = os.getenv("MDL_OBJ_REPO")
         if env is not None:
             return env
 
         if self._mdl_file is not None:
-            if "image_repo" in self._mdl_file:
-                return self._mdl_file["image_repo"]
+            if "obj_repo" in self._mdl_file:
+                return self._mdl_file["obj_repo"]
 
         if self._pyproject_dict is not None:
             try:
-                return self._pyproject_dict["tool"]["modelos"]["image_repo"]
+                return self._pyproject_dict["tool"]["modelos"]["obj_repo"]
+            except KeyError:
+                pass
+
+        return None
+
+    def get_img_repo(self) -> Optional[str]:
+        env = os.getenv("MDL_IMG_REPO")
+        if env is not None:
+            return env
+
+        if self._mdl_file is not None:
+            if "img_repo" in self._mdl_file:
+                return self._mdl_file["img_repo"]
+
+        if self._pyproject_dict is not None:
+            try:
+                return self._pyproject_dict["tool"]["modelos"]["img_repo"]
             except KeyError:
                 pass
 

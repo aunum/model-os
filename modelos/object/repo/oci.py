@@ -14,6 +14,7 @@ from modelos.virtual.container.id import ImageID
 from modelos.object.id import ObjectID, NV, Version
 from modelos.object.info import ObjectArtifactInfo
 from modelos.virtual.container.registry import get_oci_client, get_repo_tags, delete_repo_tag, get_img_labels
+from modelos.project import Project
 
 PROTOCOL = "oci"
 
@@ -128,7 +129,11 @@ class OCIObjectRepo(ObjectRepo):
                 continue
             for id in ids:
                 # print(f"checking id '{id}' against desired id '{desired_id}'")
-                obj_id = self.parse(id)
+                try:
+                    obj_id = self.parse(id)
+                except Exception:
+                    continue
+
                 if name != obj_id.name:
                     continue
 
@@ -144,9 +149,9 @@ class OCIObjectRepo(ObjectRepo):
         name: str,
         version: str,
         command: List[str],
-        dev_dependencies: bool = False,
         clean: bool = True,
         labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
     ) -> ObjectID:
         """Build the object artifact
 
@@ -154,21 +159,34 @@ class OCIObjectRepo(ObjectRepo):
             name (str): Name of the object
             version (str): Version of the object
             command (List[str]): Command to launch object.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
-            labels (Dict[str, str], optional). Labels to add to the image. Defaults to None.
+            labels (Dict[str, str], optional): Labels to add to the image. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: The object ID
         """
 
+        if project is None:
+            project = Project()
+
         id = self.build_id(name, version)
 
         dockerfile = build_dockerfile(
-            command=command, sync_strategy=RemoteSyncStrategy.IMAGE, dev_dependencies=dev_dependencies
+            project=project,
+            command=command,
+            sync_strategy=RemoteSyncStrategy.IMAGE,
         )
 
-        image_id = build_img(dockerfile, RemoteSyncStrategy.IMAGE, tag=str(id.nv()), clean=clean, labels=labels)
+        image_id = build_img(
+            dockerfile,
+            RemoteSyncStrategy.IMAGE,
+            project=project,
+            tag=str(id.nv()),
+            img_repo=self._uri,
+            clean=clean,
+            labels=labels,
+        )
         logging.info(f"successfully built img with {image_id}")
 
         return id
@@ -178,9 +196,9 @@ class OCIObjectRepo(ObjectRepo):
         name: str,
         version: str,
         command: List[str],
-        dev_dependencies: bool = False,
         clean: bool = True,
         labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
     ) -> ObjectID:
         """Find or build the object artifact
 
@@ -188,17 +206,19 @@ class OCIObjectRepo(ObjectRepo):
             name (str): Name of the object
             version (str): Version of the object
             command (List[str]): Command to launch object.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             labels (Dict[str, str], optional). Labels to add to the image. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: The object ID
         """
-
+        print("generating id: ", name, version)
         id = self.build_id(name, version)
+        print("id: ", id)
 
         found_ids = self.find(name, version)
+        print("found ids: ", found_ids)
         if len(found_ids) == 1:
             return found_ids[0]
 
@@ -206,7 +226,7 @@ class OCIObjectRepo(ObjectRepo):
             raise SystemError("found multiple matching images")
 
         logging.info("image not found locally... building")
-        self.build(name, version, command, dev_dependencies, clean, labels)
+        self.build(name, version, command, clean, labels, project=project)
 
         self.push(name, version)
 

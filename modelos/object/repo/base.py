@@ -3,6 +3,7 @@ from typing import Optional, List, Dict
 
 from modelos.object.id import ObjectID, Version
 from modelos.object.info import ObjectArtifactInfo
+from modelos.project import Project
 
 
 class ObjectRepo(ABC):
@@ -93,19 +94,19 @@ class ObjectRepo(ABC):
         name: str,
         version: str,
         command: List[str],
-        dev_dependencies: bool = False,
         clean: bool = True,
         labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
     ) -> ObjectID:
-        """Build the object
+        """Build the object artifact
 
         Args:
             name (str): Name of the object
             version (str): Version of the object
             command (List[str]): Command to launch object.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
-            labels (Dict[str, str], optional). Labels to add to the image. Defaults to None.
+            labels (Dict[str, str], optional): Labels to add to the image. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: The object ID
@@ -118,19 +119,19 @@ class ObjectRepo(ABC):
         name: str,
         version: str,
         command: List[str],
-        dev_dependencies: bool = False,
         clean: bool = True,
         labels: Optional[Dict[str, str]] = None,
+        project: Optional[Project] = None,
     ) -> ObjectID:
-        """Find or build the object
+        """Find or build the object artifact
 
         Args:
             name (str): Name of the object
             version (str): Version of the object
             command (List[str]): Command to launch object.
-            dev_dependencies (bool, optional): Whether to install dev dependencies. Defaults to False.
             clean (bool, optional): Whether to clean generated files. Defaults to True.
             labels (Dict[str, str], optional). Labels to add to the image. Defaults to None.
+            project (Project, optional): Project to use. Defaults to None.
 
         Returns:
             ObjectID: The object ID

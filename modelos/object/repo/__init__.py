@@ -9,4 +9,4 @@ def set_repo(uri: str) -> None:
     Args:
         uri (str): URI of the repo
     """
-    patch_mdl_file({"image_repo": uri})
+    patch_mdl_file({"img_repo": uri})

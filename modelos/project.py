@@ -230,7 +230,33 @@ class Project:
 
         return env_files
 
-    def get_deps(self) -> List[str]:
+    def all_files(self) -> List[str]:
+        """List all files in the project
+
+        Returns:
+            List[str]: List of files
+        """
+        ret: List[str] = []
+        for root, _, files in os.walk(self.rootpath):
+            for file in files:
+                ret.append(os.path.join(root, file))
+
+        return ret
+
+    def all_dirs(self) -> List[str]:
+        """List all directories in the project
+
+        Returns:
+            List[str]: List of directories
+        """
+        ret: List[str] = []
+        for root, dirs, _ in os.walk(self.rootpath):
+            for _dir in dirs:
+                ret.append(os.path.join(root, _dir))
+
+        return ret
+
+    def _get_deps(self) -> List[str]:
         """Get dependencies for the project
 
         Returns:
